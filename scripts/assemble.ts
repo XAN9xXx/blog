@@ -26,7 +26,6 @@ interface RepositoryProvenance {
 interface BuildProvenance {
   blog: RepositoryProvenance;
   content: RepositoryProvenance;
-  assembledAt: string;
 }
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -299,7 +298,6 @@ function assemble(): void {
   const provenance: BuildProvenance = {
     blog: getRepositoryProvenance(config.blogDir),
     content: getRepositoryProvenance(config.contentDir),
-    assembledAt: new Date().toISOString(),
   };
 
   cleanSiteDirectory();
