@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 
@@ -64,6 +65,134 @@ function runGit(
   ).trim();
 }
 
+function assertDirectory(
+  directory: string,
+  description: string,
+): void {
+  if (!existsSync(directory)) {
+    throw new Error(
+      `${description} does not exist: ${directory}`,
+    );
+  }
+
+  if (!statSync(directory).isDirectory()) {
+    throw new Error(
+      `${description} is not a directory: ${directory}`,
+    );
+  }
+}
+
+function assertFile(
+  file: string,
+  description: string,
+): void {
+  if (!existsSync(file)) {
+    throw new Error(
+      `${description} does not exist: ${file}`,
+    );
+  }
+
+  if (!statSync(file).isFile()) {
+    throw new Error(
+      `${description} is not a file: ${file}`,
+    );
+  }
+}
+
+function assertGitRepository(
+  repository: string,
+  description: string,
+): void {
+  try {
+    const result = runGit(
+      repository,
+      ['rev-parse', '--is-inside-work-tree'],
+    );
+
+    if (result !== 'true') {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      `${description} is not a Git working tree: ${repository}`,
+    );
+  }
+}
+
+function assertSafeSiteDirectory(): void {
+  const { blogDir, contentDir, siteDir } = config;
+
+  if (
+    siteDir === blogDir ||
+    siteDir === contentDir
+  ) {
+    throw new Error(
+      'Site directory must not be the Blog or Content repository.',
+    );
+  }
+
+  if (
+    siteDir.startsWith(`${blogDir}${path.sep}`) ||
+    siteDir.startsWith(`${contentDir}${path.sep}`)
+  ) {
+    throw new Error(
+      'Site directory must not be inside the Blog or Content repository.',
+    );
+  }
+
+  if (
+    blogDir.startsWith(`${siteDir}${path.sep}`) ||
+    contentDir.startsWith(`${siteDir}${path.sep}`)
+  ) {
+    throw new Error(
+      'Site directory must not contain the Blog or Content repository.',
+    );
+  }
+}
+
+function preflight(): void {
+  console.log('Running preflight checks...');
+
+  assertDirectory(
+    config.blogDir,
+    'Blog repository',
+  );
+
+  assertDirectory(
+    config.contentDir,
+    'Content repository',
+  );
+
+  assertGitRepository(
+    config.blogDir,
+    'Blog repository',
+  );
+
+  assertGitRepository(
+    config.contentDir,
+    'Content repository',
+  );
+
+  assertFile(
+    path.join(config.blogDir, 'package.json'),
+    'Blog package.json',
+  );
+
+  assertFile(
+    path.join(config.blogDir, 'package-lock.json'),
+    'Blog package-lock.json',
+  );
+
+  assertDirectory(
+    path.join(config.contentDir, 'articles'),
+    'Content articles directory',
+  );
+
+  assertSafeSiteDirectory();
+
+  console.log('Preflight checks passed.');
+}
+
 function getRepositoryProvenance(
   repository: string,
 ): RepositoryProvenance {
@@ -122,12 +251,6 @@ function copyBlog(): void {
 }
 
 function copyContent(): void {
-  if (!existsSync(config.contentDir)) {
-    throw new Error(
-      `Content repository not found: ${config.contentDir}`,
-    );
-  }
-
   const destination = path.join(
     config.siteDir,
     'content',
@@ -167,6 +290,9 @@ function writeProvenance(
 }
 
 function assemble(): void {
+  preflight();
+
+  console.log();
   console.log('Assembling site...');
   console.log();
 
@@ -191,11 +317,15 @@ function assemble(): void {
   console.log(`Content commit: ${provenance.content.commit}`);
 
   if (provenance.blog.dirty) {
-    console.warn('Warning: Blog repository has uncommitted changes.');
+    console.warn(
+      'Warning: Blog repository has uncommitted changes.',
+    );
   }
 
   if (provenance.content.dirty) {
-    console.warn('Warning: Content repository has uncommitted changes.');
+    console.warn(
+      'Warning: Content repository has uncommitted changes.',
+    );
   }
 }
 
