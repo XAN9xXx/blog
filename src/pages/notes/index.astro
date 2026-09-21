@@ -1,0 +1,32 @@
+---
+import { getCollection } from 'astro:content';
+
+const articles = (await getCollection('articles'))
+  .filter((entry) => !entry.data.draft)
+  .sort(
+    (a, b) =>
+      b.data.pubDate.valueOf() -
+      a.data.pubDate.valueOf()
+  );
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Notes</title>
+  </head>
+
+  <body>
+    <h1>Notes</h1>
+
+    <ul>
+      {articles.map((article) => (
+        <li>
+          <a href={`/notes/${article.id}/`}>
+            {article.data.title}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </body>
+</html>
