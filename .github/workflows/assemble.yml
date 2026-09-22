@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: assemble-site
+  cancel-in-progress: true
+
 jobs:
   assemble:
     runs-on: ubuntu-latest
@@ -23,14 +27,14 @@ jobs:
       - name: Checkout Blog-Content
         uses: actions/checkout@v4
         with:
-          repository: XAN9xXx/Blog-Content
+          repository: XAN9xXx/blog-content
           token: ${{ secrets.BLOG_CONTENT_TOKEN }}
           path: xan9x-blog-content
 
       - name: Checkout Site
         uses: actions/checkout@v4
         with:
-          repository: XAN9xXx/Site
+          repository: XAN9xXx/site
           token: ${{ secrets.SITE_TOKEN }}
           path: xan9x-site
 

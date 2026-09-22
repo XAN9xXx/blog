@@ -269,7 +269,12 @@ function copyContent(): void {
         return true;
       }
 
-      return relative.split(path.sep)[0] !== '.git';
+      const firstEntry = relative.split(path.sep)[0];
+
+      return !new Set([
+        '.git',
+        '.github',
+      ]).has(firstEntry);
     },
   });
 }
