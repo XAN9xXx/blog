@@ -1,0 +1,79 @@
+name: Assemble Site
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Blog
+        uses: actions/checkout@v4
+        with:
+          path: blog
+
+      - name: Checkout Blog-Content
+        uses: actions/checkout@v4
+        with:
+          repository: XAN9xXx/Blog-Content
+          token: ${{ secrets.BLOG_CONTENT_TOKEN }}
+          path: xan9x-blog-content
+
+      - name: Checkout Site
+        uses: actions/checkout@v4
+        with:
+          repository: XAN9xXx/Site
+          token: ${{ secrets.SITE_TOKEN }}
+          path: xan9x-site
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: blog/package-lock.json
+
+      - name: Install Blog dependencies
+        working-directory: blog
+        run: npm ci
+
+      - name: Assemble Site
+        working-directory: blog
+        env:
+          BLOG_CONTENT_SOURCE: ${{ github.workspace }}/xan9x-blog-content
+          SITE_DIR: ${{ github.workspace }}/xan9x-site
+        run: npm run assemble
+
+      - name: Install generated Site dependencies
+        working-directory: xan9x-site
+        run: npm ci
+
+      - name: Build generated Site
+        working-directory: xan9x-site
+        env:
+          BLOG_CONTENT_DIR: ./content
+        run: npm run build
+
+      - name: Commit generated Site
+        working-directory: xan9x-site
+        run: |
+          git config user.name "xan9x-site-bot"
+          git config user.email "xan9x-site-bot@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+
+          git commit -m "assemble site"
+          git push

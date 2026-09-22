@@ -46,6 +46,7 @@ const config: AssembleConfig = {
 
 const excludedBlogEntries = new Set([
   '.git',
+  '.github',
   '.astro',
   'dist',
   'node_modules',
