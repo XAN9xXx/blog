@@ -17,3 +17,12 @@ export function matchesArticle(article: { id: string; data: { title: string; des
 export function previewSize(width: number, viewportHeight: number, top: number) {
   return { width: Math.max(640, Math.floor(width)), height: Math.max(400, Math.min(680, Math.floor(viewportHeight - Math.max(0, top) - 104))) };
 }
+
+export function articleListSummary(total: number, shown: number, query: string, filter: string) {
+  const searching = Boolean(query.trim());
+  const noun = filter === 'draft' ? '草稿' : filter === 'ready' ? '定稿文章' : '文章';
+  const empty = !total ? '还没有文章，可以新建草稿开始写作。'
+    : searching ? `没有匹配的${noun}。试试其他关键词${filter === 'all' ? '' : '，或切换筛选'}。`
+    : filter !== 'all' ? `当前没有${noun}。可以切换为“全部文章”。` : '没有文章可显示。';
+  return { count: searching || filter !== 'all' ? `${shown} / ${total}` : String(total), empty };
+}

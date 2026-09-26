@@ -324,3 +324,17 @@ test('topic search preserves selected values and disclosure state without preten
   await page.getByRole('button', { name: '重新读取已保存内容', exact: true }).click();
   await expect(page.locator('#message')).toHaveText('已重新读取私有快照。');
 });
+
+
+test('article filters explain empty results and the editor explains heading hierarchy', async ({ page }) => {
+  await login(page); await page.getByLabel('搜索文章', { exact: true }).fill('no-matching-article');
+  await expect(page.locator('#article-count')).toHaveText(/^0 \/ \d+$/);
+  await expect(page.locator('#article-list-empty')).toContainText('其他关键词');
+  await page.getByLabel('搜索文章', { exact: true }).fill('');
+  await page.getByLabel('筛选', { exact: true }).selectOption('draft');
+  await expect(page.locator('#article-list-empty')).toHaveText('当前没有草稿。可以切换为“全部文章”。');
+  await expect(page.locator('#article-count')).toHaveText(/^0 \/ \d+$/);
+  await page.getByLabel('筛选', { exact: true }).selectOption('all');
+  await expect(page.locator('#body-heading-help')).toContainText('正文建议从 ## 二级标题开始');
+  await expect(page.getByLabel('Markdown 正文')).toHaveAttribute('aria-describedby', 'body-heading-help');
+});

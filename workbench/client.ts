@@ -2,7 +2,7 @@ import { mountTopology, type TopologyInstance, type TopologyNode } from '@xan9x/
 import '@xan9x/topology/style.css';
 import './style.css';
 import type { Workspace, Command } from './model';
-import { uniqueId, matchesArticle, previewSize } from './ui-helpers';
+import { uniqueId, matchesArticle, previewSize, articleListSummary } from './ui-helpers';
 
 interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[] } }
 interface State { revision: string; sourceChanged: boolean; workspace: Workspace; articles: Article[] }
@@ -86,8 +86,10 @@ function updateArticleList() {
   const query = $<HTMLInputElement>('article-search').value;
   const filter = $<HTMLSelectElement>('article-filter').value;
   const articles = state.articles.filter(a => matchesArticle(a, query, filter));
-  $('article-count').textContent = String(state.articles.length);
-  $('mobile-article-count').textContent = String(state.articles.length);
+  const summary = articleListSummary(state.articles.length, articles.length, query, filter);
+  $('article-count').textContent = summary.count;
+  $('mobile-article-count').textContent = summary.count;
+  $('article-list-empty').textContent = summary.empty;
   $('article-list-empty').hidden = articles.length > 0;
   $('articles').replaceChildren(...articles.map(a => {
     const li = document.createElement('li'); const button = document.createElement('button');

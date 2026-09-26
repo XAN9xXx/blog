@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uniqueId, matchesArticle, previewSize } from '../workbench/ui-helpers';
+import { uniqueId, matchesArticle, previewSize, articleListSummary } from '../workbench/ui-helpers';
 
 test('UI identifiers are editable safe defaults, including non-Latin titles', () => {
   assert.equal(uniqueId('My first note!', [], 'note-abc'), 'my-first-note');
@@ -27,4 +27,14 @@ test('preview geometry fits available height without violating map minimum dimen
   assert.deepEqual(previewSize(1374, 840, 318), { width: 1374, height: 418 });
   assert.deepEqual(previewSize(355, 600, 350), { width: 640, height: 400 });
   assert.deepEqual(previewSize(1500.9, 1400, 250), { width: 1500, height: 680 });
+});
+
+test('article list counts and empty messages distinguish search, filters and an empty workspace', () => {
+  assert.equal(articleListSummary(10, 10, '', 'all').count, '10');
+  assert.equal(articleListSummary(10, 0, '', 'draft').count, '0 / 10');
+  assert.match(articleListSummary(10, 0, '', 'draft').empty, /当前没有草稿/);
+  assert.doesNotMatch(articleListSummary(10, 0, '', 'draft').empty, /关键词/);
+  assert.match(articleListSummary(10, 0, 'missing', 'ready').empty, /没有匹配的定稿文章.*其他关键词.*切换筛选/);
+  assert.equal(articleListSummary(10, 2, 'ssh', 'all').count, '2 / 10');
+  assert.match(articleListSummary(0, 0, '', 'all').empty, /新建草稿/);
 });
