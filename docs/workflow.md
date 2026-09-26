@@ -200,7 +200,7 @@ npm run workbench:start
 
 | 变量 | 默认值 / 约束 |
 | --- | --- |
-| WORKBENCH_ORIGIN | http://127.0.0.1:4325；远程地址必须使用 HTTPS，不能包含路径 |
+| WORKBENCH_ORIGIN | 浏览器实际使用的来源地址；SSH 转发用 http://127.0.0.1:4325，直接使用远程域名则必须 HTTPS；不能包含路径 |
 | WORKBENCH_PORT | 4325，1024–65535；服务仅监听 127.0.0.1 |
 | WORKBENCH_PASSWORD_HASH | 必填，使用上述命令生成；不接受明文或默认密码 |
 | WORKBENCH_CONTENT_DIR | 相邻内容仓库；只读导入文章和 topology.json，不读取 Git 凭据 |
@@ -221,17 +221,73 @@ npm run workbench:start
 - 异常终止可能留下 write.lock，服务会拒绝后续保存而不是强行覆盖。只有在确认进程已停止并检查快照后，管理员才能清理遗留锁；不提供自动破锁。
 - 会话保存在内存；重启后需要重新登录。空闲 1 小时或登录满 8 小时失效；退出立即撤销。单用户登录有全局速率限制，同一时间只执行一次密码推导。
 
-### VPS 上线前需要用户参与
+### 当前部署选择：阿里云 VPS + SSH 本地端口转发
 
-示例配置在 `workbench/workbench.env.example`，systemd 模板在 `workbench/xan9x-workbench.service`，当前没有安装或启动到 VPS。
+工作台先部署在阿里云 VPS，通过 SSH 本地转发访问，不配置公开域名、HTTPS 反向代理或 Cloudflare Tunnel。之前的域名/反向代理前置条件在此阶段不再需要。雨云的裸 Git 仓库、GitHub 镜像与 Cloudflare 的公开博客流水线保持原样，不因工作台换部署主机而迁移。
 
-上线需先确定：工作台域名、现有 HTTPS 反向代理/Cloudflare Tunnel 方式、部署工作副本路径、只读内容工作副本路径，以及低权限服务用户。`/srv/git/*.git` 是裸仓库，不能直接作为 WORKBENCH_CONTENT_DIR。
+~~~text
+本机浏览器 http://127.0.0.1:4325
+    → 本机 SSH 监听 127.0.0.1:4325
+    → 加密 SSH 通道
+    → 阿里云 VPS 127.0.0.1:4325（工作台）
+        ├─ 只读内容工作副本
+        └─ 私有状态目录（保存文章与目录快照）
+~~~
 
-- 模板假设代码位于 /opt/xan9x-blog、Node 位于 /usr/bin/node；部署时必须核实，不自动改动现有服务。
-- 反向代理到 127.0.0.1:4325，并保留与 WORKBENCH_ORIGIN 相符的 Host 与浏览器 Origin。不得缓存工作台页面/API，也不要移除登录保护。
-- 用专门的非 root 用户运行，仅赋予代码和内容源读取权限、私有状态目录写权限；不授予 Git 发布凭据。
-- 密码由用户在 VPS 本地设置，不发送到聊天。环境文件留在仓库外并限制权限。远程会话使用 Secure / HttpOnly / SameSite=Strict Cookie；写请求另校验 Origin 与会话 CSRF token。
-- 先完成 HTTPS、登录、保存后重启恢复、两页冲突、草稿不泄露和退出失效的远端验收，再设计发布候选、差异确认与显式推送流程。当前不存在可调用的发布接口。
+示例配置在 `workbench/workbench.env.example`，systemd 模板在 `workbench/xan9x-workbench.service`。当前只有本地验证，没有安装或启动到 VPS。
+
+服务端环境配置：
+
+~~~ini
+WORKBENCH_ORIGIN=http://127.0.0.1:4325
+WORKBENCH_PORT=4325
+WORKBENCH_CONTENT_DIR=/srv/worktrees/xan9x-blog-content
+WORKBENCH_STATE_DIR=/var/lib/xan9x-workbench
+# WORKBENCH_PASSWORD_HASH 由用户在服务器本地生成，不在文档或聊天提供真实值。
+~~~
+
+用户已确认目标为 Debian 13，SSH 别名为 `aliyun`。在 Windows PowerShell 中使用现有别名建立隧道：
+
+~~~powershell
+ssh -N -T -a -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:4325:127.0.0.1:4325 aliyun
+~~~
+
+- `-L` 左边是本机监听地址/端口，右边是从 VPS 连接的目标地址/端口；两端都显式使用 127.0.0.1。
+- `-N -T` 只转发，不启动远端命令或终端；`-a` 不转发 SSH agent。自定义 SSH 端口使用已有别名配置，或另加 `-p 端口`。
+- 保持此 PowerShell 会话运行，再访问 `http://127.0.0.1:4325`；Ctrl+C 关闭隧道，但不会停止 VPS 上的 systemd 工作台服务。
+- 不使用 `-g`，不绑定本机 0.0.0.0，也不关闭 SSH 主机密钥校验。初次连接应核对服务器指纹。
+- 无需为工作台在阿里云安全组或系统防火墙开放 4325/80/443；只需已有 SSH 入口可达。不要为此改动已有网站端口规则。
+- 浏览器到本机、SSH 服务到 VPS 本机的最后一段是回环 HTTP；跨网络的一段由 SSH 加密。两台机器都应可信，SSH 并不代替工作台密码、CSRF 校验或私有文件权限。
+- `ExitOnForwardFailure` 能发现转发监听建立失败，但不能保证 VPS 上目标服务可用；还需实际打开网页或检查 HTTP。
+
+如果本机 4325 已占用，可以把本机端口改为 14325：
+
+~~~powershell
+ssh -N -T -a -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:14325:127.0.0.1:4325 aliyun
+~~~
+
+这时浏览器使用 `http://127.0.0.1:14325`，**VPS 上的 WORKBENCH_ORIGIN 也必须改成这个地址并重启工作台**，但 WORKBENCH_PORT 仍为 4325。SSH 转发不会替你改写 HTTP Host/Origin；若仍配置旧来源，登录或保存会被 403 拒绝。不要把 WORKBENCH_ORIGIN 填成 VPS 公网 IP，也不要混用 localhost 和 127.0.0.1。变更来源后需重新登录。
+
+### 阿里云上线前需要确认
+
+- SSH 别名/连接信息、发行版、Node 24 可用路径，以及是否可以安装低权限 systemd 服务；先只读检查，再确认实际部署变更。
+- 模板假设代码位于 /opt/xan9x-blog、Node 位于 /usr/bin/node；必须核实。SSH 登录用户与工作台服务用户可以不同，服务不要以 root 运行。
+- 阿里云需要独立的内容工作副本；雨云的 `/srv/git/*.git` 是裸仓库，不能直接作为 WORKBENCH_CONTENT_DIR。代码/内容传输或仓库读取凭据另行确认，不给工作台进程 Git 发布权限。
+- 专用服务用户只读代码和内容源，只写私有状态目录。生产密码由用户在 VPS 本地设置，不发送到聊天；环境文件留在仓库外并限制权限。
+- HTTP 回环来源的会话保留 HttpOnly / SameSite=Strict；不设置仅用于 HTTPS 的 Secure 标记。来源与 CSRF 校验继续生效，不能为适配隧道而禁用。
+- 如果 SSH 报 `administratively prohibited`，应由管理员检查有效的 AllowTcpForwarding、DisableForwarding、PermitOpen 和 authorized_keys 限制；不直接改全局 SSH 策略。若要为专用账号收窄目的地，可评估只允许 127.0.0.1:4325，但须先确认不影响已有连接用途。
+
+上线验收顺序：
+
+1. VPS 上确认服务只监听 127.0.0.1:4325，而不是 0.0.0.0 或公网地址；本机也只监听 127.0.0.1 的转发端口。
+2. 通过隧道登录，保存一篇测试草稿、绑定目录，检查完整/公开两种预览。
+3. 验证未登录不能读取工作区/导出、旧页面保存冲突不会覆盖新版本、退出后会话失效。
+4. 重启工作台后重新登录，确认私有保存仍在；关闭 SSH 后本机访问中断，重新建隧道后恢复。
+5. 确认真实内容仓库和公开站点没有因保存发生变更，再单独设计发布候选、差异确认与显式推送流程。当前不存在可调用的发布接口。
+
+将来需要从多设备直接通过域名访问时，再配置 HTTPS 反向代理及相应 WORKBENCH_ORIGIN，不在当前隧道方案中暴露公网 HTTP。
+
+隧道参数依据：[OpenSSH ssh(1)](https://man.openbsd.org/ssh.1)、[ssh_config(5)](https://man.openbsd.org/ssh_config.5)、[sshd_config(5)](https://man.openbsd.org/sshd_config.5)。
 
 安全实现参考：[OWASP 身份验证](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)、[OWASP CSRF 防护](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)、[Node 24 scrypt](https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptoscryptpassword-salt-keylen-options-callback)。这不是第三方安全审计结论。
 
