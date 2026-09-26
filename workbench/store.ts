@@ -59,7 +59,13 @@ export class WorkspaceStore {
     const descriptor = openSync(temporary, 'wx', 0o600);
     try { writeFileSync(descriptor, JSON.stringify(value) + '\n'); fsyncSync(descriptor); }
     finally { closeSync(descriptor); }
-    try { renameSync(temporary, this.file); }
+    try {
+      renameSync(temporary, this.file);
+      if (process.platform !== 'win32') {
+        const directory = openSync(this.directory, 'r');
+        try { fsyncSync(directory); } finally { closeSync(directory); }
+      }
+    }
     finally { if (existsSync(temporary)) rmSync(temporary); }
   }
   get() {

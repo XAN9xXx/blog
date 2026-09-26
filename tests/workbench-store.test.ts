@@ -99,3 +99,13 @@ test('untrusted snapshots reject executable frontmatter, duplicate paths and aut
   const linked = structuredClone(w); linked.topology.document.root.href = '/arbitrary';
   assert.throws(() => validateWorkspace(linked), /Authored href/);
 });
+
+test('leftover write locks and corrupt snapshots fail closed', t => {
+  const f = setup(t); const before = f.store.get();
+  writeFileSync(path.join(f.directory, 'write.lock'), '');
+  assert.throws(() => f.store.save(before.revision, createArticle), /中断锁/);
+  assert.equal(f.store.get().revision, before.revision);
+  writeFileSync(path.join(f.directory, 'workspace.json'), '{broken');
+  assert.throws(() => new WorkspaceStore(f.content, f.directory));
+  assert.equal(readFileSync(path.join(f.directory, 'workspace.json'), 'utf8'), '{broken');
+});

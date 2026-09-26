@@ -15,7 +15,11 @@
     "check": "astro check",
     "test": "tsx --test tests/*.test.ts",
     "validate:content": "tsx scripts/validate-content.ts",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "workbench:build": "node workbench/build.mjs",
+    "workbench:start": "tsx workbench/server.ts",
+    "workbench:password": "tsx workbench/password.ts",
+    "workbench:test:browser": "playwright test --config workbench/playwright.config.ts"
   },
   "dependencies": {
     "@phosphor-icons/core": "2.1.1",
@@ -30,7 +34,10 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
     "@playwright/test": "^1.63.0",
+    "@types/markdown-it": "14.2.0",
     "@types/node": "^26.6.2",
+    "esbuild": "0.28.2",
+    "markdown-it": "14.3.2",
     "tsx": "^4.23.15",
     "typescript": "^6.0.0"
   }
