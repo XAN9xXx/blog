@@ -268,10 +268,24 @@ ssh -N -T -a -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliv
 
 这时浏览器使用 `http://127.0.0.1:14325`，**VPS 上的 WORKBENCH_ORIGIN 也必须改成这个地址并重启工作台**，但 WORKBENCH_PORT 仍为 4325。SSH 转发不会替你改写 HTTP Host/Origin；若仍配置旧来源，登录或保存会被 403 拒绝。不要把 WORKBENCH_ORIGIN 填成 VPS 公网 IP，也不要混用 localhost 和 127.0.0.1。变更来源后需重新登录。
 
+### 部署后的首次密码设置与启动
+
+安装代码、内容快照、Node、服务用户及 systemd 单元后，先保持服务停用，不配置默认生产密码。由用户在自己的交互 SSH 终端中执行：
+
+~~~sh
+bash /opt/xan9x-blog/workbench/set-password.sh
+systemctl enable --now xan9x-workbench
+systemctl status xan9x-workbench --no-pager
+~~~
+
+密码设置脚本需要 root 和交互终端；隐藏读取两次密码，经 scrypt 处理后以 0600 权限原子更新 /etc/xan9x-workbench.env，不显示密码或哈希，不把明文放在进程参数中。脚本失败时不要执行后续启动命令。此脚本本身不启动服务。
+
+修改密码后需 `systemctl restart xan9x-workbench`，使新配置生效并撤销现有内存会话。不要将密码或环境文件内容发送到聊天。
+
 ### 阿里云上线前需要确认
 
 - SSH 别名/连接信息、发行版、Node 24 可用路径，以及是否可以安装低权限 systemd 服务；先只读检查，再确认实际部署变更。
-- 模板假设代码位于 /opt/xan9x-blog、Node 位于 /usr/bin/node；必须核实。SSH 登录用户与工作台服务用户可以不同，服务不要以 root 运行。
+- 模板使用 /opt/xan9x-blog 中的代码，以及独立安装到 /opt/node24 的 Node 24；不修改系统 Node 或全局 alternatives。SSH 登录用户与工作台服务用户可以不同，服务不要以 root 运行。
 - 阿里云需要独立的内容工作副本；雨云的 `/srv/git/*.git` 是裸仓库，不能直接作为 WORKBENCH_CONTENT_DIR。代码/内容传输或仓库读取凭据另行确认，不给工作台进程 Git 发布权限。
 - 专用服务用户只读代码和内容源，只写私有状态目录。生产密码由用户在 VPS 本地设置，不发送到聊天；环境文件留在仓库外并限制权限。
 - HTTP 回环来源的会话保留 HttpOnly / SameSite=Strict；不设置仅用于 HTTPS 的 Secure 标记。来源与 CSRF 校验继续生效，不能为适配隧道而禁用。

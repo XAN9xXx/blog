@@ -8,7 +8,8 @@ User=xan9x-workbench
 Group=xan9x-workbench
 WorkingDirectory=/opt/xan9x-blog
 EnvironmentFile=/etc/xan9x-workbench.env
-ExecStart=/usr/bin/node --import tsx workbench/server.ts
+Environment=PATH=/opt/node24/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/opt/node24/bin/node --import tsx workbench/server.ts
 Restart=on-failure
 RestartSec=5
 UMask=0077
