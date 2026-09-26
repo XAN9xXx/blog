@@ -31,7 +31,7 @@ test('writing, binding and map preview form a safe round trip without manually e
   expect(id).toMatch(/^note-[a-f0-9-]+$/);
   const article = page.locator('#article-form');
   await expect(article.getByLabel('稳定 ID')).toHaveAttribute('readonly', '');
-  await expect(article.getByLabel('草稿（不公开）')).toBeChecked();
+  await expect(article.getByLabel('保留为草稿')).toBeChecked();
   await page.getByRole('button', { name: '预览当前正文', exact: true }).click();
   await expect(page.locator('#rendered-body h1')).toHaveText('私有正文');
   await expect(article.getByLabel('Markdown 正文')).toBeHidden();
@@ -59,7 +59,8 @@ test('writing, binding and map preview form a safe round trip without manually e
   await page.locator('#article-danger > summary').click();
   await page.getByRole('button', { name: '删除文章', exact: true }).click(); await expect(page.locator('#message')).toContainText('请先移除或重新绑定');
   await article.getByLabel('标题', { exact: true }).fill('改名后的文章'); await settings(page);
-  await article.getByLabel('草稿（不公开）').uncheck();
+  await article.getByLabel('保留为草稿').uncheck();
+  await page.locator('#topic-picker > summary').click();
   await article.getByLabel('Software', { exact: true }).check();
   await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
   await view(page, 'preview'); await page.getByRole('button', { name: '模拟公开地图' }).click();
@@ -118,13 +119,13 @@ test('search, filters, keyboard save and advanced defaults preserve user edits',
   await expect(article.getByLabel('文件路径')).toHaveValue('articles/' + id + '.md');
   await article.getByLabel('Markdown 正文').fill('不应丢失的正文');
   await expect(page.locator('#save-status')).toContainText('未保存');
-  await expect(page.locator('#word-count')).toContainText('未保存');
+  await expect(page.locator('#word-count')).toContainText('字符（不含空白）');
   await page.getByLabel('搜索文章', { exact: true }).fill('不存在的关键词');
   await expect(page.locator('#article-list-empty')).toBeVisible();
   await expect(article.getByLabel('Markdown 正文')).toHaveValue('不应丢失的正文');
   await page.getByLabel('搜索文章', { exact: true }).fill('');
   await article.getByLabel('Markdown 正文').press('Control+s'); await saved(page);
-  await expect(page.locator('#save-status')).toHaveText('已保存 · 仅私有');
+  await expect(page.locator('#save-status')).toHaveText('已保存到私有工作区');
   await page.getByLabel('筛选', { exact: true }).selectOption('draft');
   await expect(page.locator(`#articles [data-article-id="${id}"]`)).toBeVisible();
   await expect(page.locator('#articles [data-article-id="hello"]')).toHaveCount(0);
@@ -218,6 +219,12 @@ test('SSH mode renews an absent session once without discarding an unsaved artic
 test('preview motion, viewport sizing, inspector and page gutters remain usable', async ({ page }, info) => {
   await login(page); await page.emulateMedia({ reducedMotion: 'no-preference' }); await page.setViewportSize({ width: 1440, height: 840 });
   const mainLeft = () => page.locator('main').evaluate(el => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
+  for (const width of [1920, 1536, 1440, 1366, 1024, 768, 390]) {
+    await page.setViewportSize({ width, height: 840 });
+    const footerLeft = await page.locator('footer').evaluate(el => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
+    expect(Math.abs(footerLeft - await mainLeft())).toBeLessThan(1);
+  }
+  await page.setViewportSize({ width: 1440, height: 840 });
   const before = await mainLeft();
   await view(page, 'preview'); await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
   expect(Math.abs(await mainLeft() - before)).toBeLessThan(1);
@@ -255,7 +262,65 @@ test('preview motion, viewport sizing, inspector and page gutters remain usable'
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 1440, height: 840 });
   await view(page, 'articles'); await view(page, 'preview');
+  await page.evaluate(() => {
+    const sample = (window as unknown as { motionSample: { running: boolean; positions: string[] } }).motionSample;
+    sample.positions = []; sample.running = true;
+    const frame = () => { sample.positions.push(document.querySelector('#map-preview [data-id="infrastructure"]')?.getAttribute('transform') ?? ''); if (sample.running) requestAnimationFrame(frame); }; requestAnimationFrame(frame);
+  });
   await mapNode(page, 'infrastructure');
+  const reducedPositions = await page.evaluate(() => { const sample = (window as unknown as { motionSample: { running: boolean; positions: string[] } }).motionSample; sample.running = false; return sample.positions; });
+  expect(new Set(reducedPositions.filter(Boolean)).size).toBeLessThanOrEqual(2);
   await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
   await expect(page.locator('#map-preview .node.current')).toHaveAttribute('data-id', 'infrastructure');
+});
+
+
+test('topic search preserves selected values and disclosure state without pretending to publish', async ({ page }, info) => {
+  await login(page);
+  const article = page.locator('#article-form');
+  const id = await article.getByLabel('稳定 ID').inputValue();
+  await settings(page); await page.locator('#topic-picker > summary').click();
+  await article.getByLabel('搜索主题', { exact: true }).fill('Software');
+  await expect(page.locator('#save-status')).toHaveText('已保存到私有工作区');
+  await article.getByLabel('Software', { exact: true }).check();
+  await expect(page.locator('#selected-topics')).toContainText('Software');
+  await article.getByLabel('搜索主题', { exact: true }).fill('no-such-topic');
+  await expect(page.locator('#topic-no-match')).toBeVisible();
+  await expect(page.locator('#selected-topics')).toContainText('Software');
+  await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
+  await expect(page.locator('#article-settings')).toHaveAttribute('open', '');
+  await expect(page.locator('#topic-picker')).toHaveAttribute('open', '');
+  await expect(article.getByLabel('搜索主题', { exact: true })).toHaveValue('no-such-topic');
+  await view(page, 'directory'); await view(page, 'articles');
+  await expect(page.locator('#article-settings')).toHaveAttribute('open', '');
+  await expect(page.locator('#topic-picker')).toHaveAttribute('open', '');
+  await expect(page.locator('#selected-topics')).toContainText('Software');
+  await page.getByRole('button', { name: '移除主题 Software', exact: true }).click();
+  await expect(page.locator('#selected-topics')).not.toContainText('Software');
+  await article.getByLabel('Markdown 正文').fill('A 中 😊\n');
+  await expect(page.locator('#word-count')).toHaveText('3 字符（不含空白）');
+  await expect(page.locator('#save-status')).toContainText('未保存');
+  await article.getByLabel('搜索主题', { exact: true }).fill('');
+  await expect(article.getByLabel('Software', { exact: true })).not.toBeChecked();
+  expect(await page.locator('#topic-options').evaluate(el => getComputedStyle(el).overflowY)).toBe('visible');
+  await page.locator('#article-settings .advanced > summary').click();
+  await expect(article.getByLabel('稳定 ID')).toHaveCSS('border-top-style', 'dashed');
+  await article.getByLabel('文件路径').fill('articles/moved/' + id + '.md');
+  await expect(page.locator('#path-change-note')).toBeVisible();
+  await expect(article.getByLabel('稳定 ID')).toHaveValue(id);
+  await article.getByLabel('文件路径').fill('articles/' + id + '.md');
+  await article.getByLabel('保留为草稿').uncheck();
+  await expect(page.locator('#article-state')).toHaveText('稿件：定稿');
+  await expect(page.locator('#publish-status')).toHaveText('发布通道未接通');
+  await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
+  await page.screenshot({ path: info.outputPath('editor-topics-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const saveStatus = await page.locator('#save-status').boundingBox();
+  const navigation = await page.locator('.workspace-nav nav').boundingBox();
+  expect(saveStatus!.y).toBeGreaterThanOrEqual(navigation!.y + navigation!.height);
+  await page.screenshot({ path: info.outputPath('editor-topics-mobile.png'), fullPage: true });
+  await page.locator('.account-menu > summary').click();
+  await page.getByRole('button', { name: '重新读取已保存内容', exact: true }).click();
+  await expect(page.locator('#message')).toHaveText('已重新读取私有快照。');
 });

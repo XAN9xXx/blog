@@ -22,7 +22,7 @@ const dirtyForms = new Set<string>();
 const expandedNodes = new Set<string>();
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
 function updateStatus() {
-  $('save-status').textContent = pending ? '处理中…' : dirtyForms.size ? '有未保存修改' : '已保存 · 仅私有';
+  $('save-status').textContent = pending ? '处理中…' : dirtyForms.size ? '有未保存修改' : '已保存到私有工作区';
   $('save-status').classList.toggle('unsaved', dirtyForms.size > 0);
   if (state) updateArticleSummary();
 }
@@ -93,7 +93,7 @@ function updateArticleList() {
     const li = document.createElement('li'); const button = document.createElement('button');
     button.type = 'button'; button.dataset.articleId = a.id; button.setAttribute('aria-current', String(a.id === selectedArticle && !creating));
     const title = document.createElement('span'); title.className = 'article-name'; title.textContent = a.data.title;
-    const meta = document.createElement('span'); meta.className = 'article-meta'; meta.textContent = `${a.data.draft ? '草稿' : '可公开'} · ${a.data.pubDate.slice(0, 10)}`;
+    const meta = document.createElement('span'); meta.className = 'article-meta'; meta.textContent = `${a.data.draft ? '草稿' : '定稿'} · ${a.data.pubDate.slice(0, 10)}`;
     button.append(title, meta); button.addEventListener('click', () => { if (!discard()) return; clearDirty(); showArticle(a.id); toggleLibrary(false); });
     li.append(button); return li;
   }));
@@ -104,12 +104,14 @@ function bodyMode(preview: boolean) {
 }
 function updateArticleSummary() {
   const body = field('article-form', 'body').value;
-  $('word-count').textContent = `${body.replace(/\s/g, '').length.toLocaleString()} 字符 · ${pending ? '处理中' : dirtyForms.has('article-form') ? '未保存' : '已保存'}`;
-  $('article-state').textContent = field('article-form', 'draft').checked ? '草稿' : '可公开';
-  $('settings-summary').textContent = `${field('article-form', 'draft').checked ? '草稿' : '可公开'} · ${field('article-form', 'topics').value.split(',').filter(s => s.trim()).length} 个分类`;
+  $('word-count').textContent = `${Array.from(body.replace(/\s/g, '')).length.toLocaleString()} 字符（不含空白）`;
+  $('article-state').textContent = '稿件：' + (field('article-form', 'draft').checked ? '草稿' : '定稿');
+  $('path-change-note').hidden = creating || field('article-form', 'path').value === state.articles.find(a => a.id === selectedArticle)?.path;
+  $('settings-summary').textContent = `${field('article-form', 'draft').checked ? '草稿' : '定稿'} · ${field('article-form', 'topics').value.split(',').filter(s => s.trim()).length} 个主题`;
 }
 function showArticle(id?: string, fresh = false) {
   const a = state.articles.find(a => a.id === id);
+  const sameArticle = selectedArticle === a?.id && creating === fresh;
   creating = fresh; selectedArticle = a?.id;
   const empty = !a && !fresh;
   $('article-empty').hidden = !empty; $('article-editor').hidden = empty;
@@ -128,18 +130,50 @@ function showArticle(id?: string, fresh = false) {
   $('topic-options').replaceChildren(...flat().filter(e => ['topic', 'index'].includes(e.node.type)).map(e => {
     const label = document.createElement('label'); label.className = 'checkbox';
     const input = document.createElement('input'); input.type = 'checkbox'; input.value = e.node.id; input.checked = data.topics.includes(e.node.id); input.dataset.topicId = e.node.id;
-    label.append(input, document.createTextNode(trail(e.node.id).slice(1).join(' / ')));
-    input.addEventListener('input', () => { field('article-form', 'topics').value = [...$('topic-options').querySelectorAll<HTMLInputElement>('input:checked')].map(i => i.value).join(', '); });
+    const name = trail(e.node.id).slice(1).join(' / '); label.dataset.topicName = name;
+    label.append(input, document.createTextNode(name));
+    input.addEventListener('input', updateTopics);
     return label;
   }));
   $('article-danger').hidden = fresh; $('manage-entry').hidden = fresh;
   const refs = Object.entries(state.workspace.topology.articleRefs).filter(([, article]) => article === id).map(([node]) => trail(node).slice(0, -1).join(' / '));
   $('article-refs').textContent = fresh ? '先保存草稿，再为它安排地图入口。' : refs.length ? '地图入口：' + refs.join('；') : '还没有地图入口，读者暂时无法从地图找到这篇文章。';
-  $<HTMLDetailsElement>('article-settings').open = false;
-  for (const details of $('article-settings').querySelectorAll('details')) details.open = false;
-  $<HTMLDetailsElement>('article-danger').open = false;
+  if (!sameArticle) {
+    $<HTMLDetailsElement>('article-settings').open = false;
+    for (const details of $('article-settings').querySelectorAll('details')) details.open = false;
+    $<HTMLDetailsElement>('article-danger').open = false;
+    $<HTMLInputElement>('topic-search').value = '';
+  }
+  renderSelectedTopics(); filterTopics();
   bodyMode(false); updateArticleSummary(); updateArticleList();
 }
+function renderSelectedTopics() {
+  const checked = [...$('topic-options').querySelectorAll<HTMLInputElement>('input:checked')];
+  $('topic-selected-empty').hidden = checked.length > 0;
+  $('selected-topics').replaceChildren(...checked.map(input => {
+    const name = input.parentElement!.dataset.topicName!;
+    const li = document.createElement('li'); const button = document.createElement('button');
+    button.type = 'button'; button.className = 'topic-chip'; button.textContent = name + ' ×';
+    button.setAttribute('aria-label', '移除主题 ' + name);
+    button.addEventListener('click', () => {
+      input.checked = false; updateTopics();
+      field('article-form', 'topics').dispatchEvent(new Event('input', { bubbles: true }));
+      ($('selected-topics').querySelector<HTMLButtonElement>('button') ?? $('topic-picker').querySelector<HTMLElement>('summary'))?.focus({ preventScroll: true });
+    });
+    li.append(button); return li;
+  }));
+}
+function updateTopics() {
+  field('article-form', 'topics').value = [...$('topic-options').querySelectorAll<HTMLInputElement>('input:checked')].map(input => input.value).join(', ');
+  renderSelectedTopics();
+}
+function filterTopics() {
+  const words = $<HTMLInputElement>('topic-search').value.trim().toLocaleLowerCase().split(/\s+/);
+  const labels = [...$('topic-options').querySelectorAll<HTMLLabelElement>('label')];
+  for (const label of labels) label.hidden = !words.every(word => label.dataset.topicName!.toLocaleLowerCase().includes(word));
+  $('topic-no-match').hidden = labels.some(label => !label.hidden);
+}
+$('topic-search').addEventListener('input', filterTopics);
 function showNode() {
   const found = flat().find(e => e.node.id === selectedNode) ?? flat()[0]!;
   selectedNode = found.node.id; const node = found.node; const article = node.type === 'article';
@@ -215,7 +249,7 @@ function newArticle() {
   dirtyForms.add('article-form'); updateStatus(); field('article-form', 'title').focus();
 }
 for (const id of ['article-form', 'directory-form', 'rebind-form', 'add-directory-form', 'bind-form', 'move-form']) {
-  form(id).addEventListener('input', () => { dirtyForms.add(id); updateStatus(); if (id === 'article-form') updateArticleSummary(); });
+  form(id).addEventListener('input', event => { if ((event.target as HTMLElement).id === 'topic-search') return; dirtyForms.add(id); updateStatus(); if (id === 'article-form') updateArticleSummary(); });
   form(id).addEventListener('invalid', event => { let parent = (event.target as HTMLElement).parentElement; while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; } }, true);
 }
 window.addEventListener('beforeunload', event => { if (dirtyForms.size) event.preventDefault(); });
@@ -225,7 +259,7 @@ form('login-form').addEventListener('submit', event => { event.preventDefault();
     field('login-form', 'password').value = ''; state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; expandedNodes.add(selectedNode); render(); message(''); });
 });
 $('logout').addEventListener('click', () => { if (!discard()) return; void action(async () => { await api('/api/logout', {}); clearDirty(); if (authMode === 'ssh') location.assign('/?session=closed'); else location.reload(); }); });
-$('reload').addEventListener('click', () => { if (!discard()) return; void action(async () => { state = await api<State>('/api/workspace'); clearDirty(); creating = false; map?.destroy(); map = undefined; mapDocument = undefined; render(); $<HTMLDetailsElement>('account').querySelector('details')!.open = false; if (view === 'preview') await showMap(mapMode); message('已重新加载。'); }); });
+$('reload').addEventListener('click', () => { if (!discard()) return; void action(async () => { state = await api<State>('/api/workspace'); clearDirty(); creating = false; map?.destroy(); map = undefined; mapDocument = undefined; render(); $<HTMLDetailsElement>('account').querySelector('details')!.open = false; if (view === 'preview') await showMap(mapMode); message('已重新读取私有快照。'); }); });
 for (const next of ['articles', 'directory', 'preview'] as const) $('view-' + next).addEventListener('click', () => {
   if (next === view || pending || !discard()) return;
   clearDirty(); creating = false; render(); setView(next);
@@ -276,6 +310,7 @@ $('remove-node').addEventListener('click', () => {
 $('collapse-tree').addEventListener('click', () => { expandedNodes.clear(); expandedNodes.add(state.workspace.topology.document.root.id); renderTree(); });
 function mapSize() {
   const viewport = $('map-preview').parentElement!;
+  $('map-scroll-hint').hidden = viewport.clientWidth >= 640;
   return previewSize(viewport.clientWidth, window.innerHeight, viewport.getBoundingClientRect().top + window.scrollY);
 }
 function drawMap(preserveFocus = false) {
@@ -291,6 +326,8 @@ function drawMap(preserveFocus = false) {
     initialFocusId: previous?.selectedId ?? previous?.focusId,
     onNavigate(_href, node, event) { event.preventDefault(); if (!discard()) return; clearDirty(); selectedNode = node.id; creating = false; selectedArticle = state.workspace.topology.articleRefs[node.id]; render(); setView('articles'); field('article-form', 'title').focus(); }
   });
+  const viewport = $('map-preview').parentElement!;
+  viewport.scrollLeft = Math.max(0, (mapWidth - viewport.clientWidth) / 2);
 }
 async function showMap(mode: 'editing' | 'public') {
   const result = await api<{ document: Parameters<typeof mountTopology>[1] }>('/api/preview', { revision: state.revision, mode });

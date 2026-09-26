@@ -109,3 +109,16 @@ test('leftover write locks and corrupt snapshots fail closed', t => {
   assert.throws(() => new WorkspaceStore(f.content, f.directory));
   assert.equal(readFileSync(path.join(f.directory, 'workspace.json'), 'utf8'), '{broken');
 });
+
+
+test('repeated Markdown saves preserve leading whitespace without accumulating blank lines', () => {
+  for (const input of ['text\n', '\ntext\n', '\n\ntext\n', '']) {
+    let workspace: Workspace = { version: 1, topology: { document: { version: 1, root: { id: 'root', type: 'root', label: 'Root', children: [] }, relations: [] }, articleRefs: {} }, articles: [] };
+    let body = input;
+    for (let n = 0; n < 5; n++) {
+      workspace = applyCommand(workspace, { ...createArticle, create: n === 0, body, data: { ...createArticle.data, description: '' } });
+      body = parseArticle(workspace.articles[0]!).body;
+      assert.equal(body, input || '\n');
+    }
+  }
+});

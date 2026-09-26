@@ -18,8 +18,8 @@
           <summary>工作区选项</summary>
           <div class="menu-content">
             <p id="revision" class="muted"></p>
-            <button id="reload" type="button">重新加载工作区</button
-            ><a href="/api/export" download>导出私有快照</a><button id="logout" type="button">退出</button>
+            <button id="reload" type="button">重新读取已保存内容</button
+            ><a href="/api/export" download>导出私有快照</a><button id="logout" type="button" class="session-end">退出</button>
           </div>
         </details>
       </div>
@@ -45,7 +45,8 @@
     <main id="main" hidden>
       <div class="workspace-heading">
         <h1>内容工作区</h1>
-        <span class="muted">保存到私有工作区，不会直接发布</span>
+        <span class="muted">编辑与保存不会修改线上博客</span>
+        <span id="publish-status" class="publish-status">发布通道未接通</span>
       </div>
       <div class="workspace-nav">
         <nav aria-label="工作区视图">
@@ -83,12 +84,12 @@
             >筛选<select id="article-filter" aria-label="筛选">
               <option value="all">全部文章</option>
               <option value="draft">草稿</option>
-              <option value="ready">可公开</option>
+              <option value="ready">定稿</option>
             </select></label
           >
           <ul id="articles"></ul>
           <p id="article-list-empty" class="muted" hidden>没有匹配的文章，试试其他关键词。</p>
-          <p class="sidebar-note">「可公开」仅表示文章不是草稿，<br />不代表已发布到线上。</p>
+          <p class="sidebar-note">草稿 / 定稿是稿件状态。<br />是否上线由发布结果决定。</p>
         </aside>
         <section class="edit-pane" aria-label="文章编辑">
           <div id="article-empty" class="empty-state" hidden>
@@ -101,7 +102,7 @@
               <fieldset id="article-fields" disabled>
                 <div class="editor-toolbar">
                   <div>
-                    <span id="article-state" class="badge">草稿</span
+                    <span id="article-state" class="badge">稿件：草稿</span
                     ><span id="word-count" class="muted"></span>
                   </div>
                   <div class="actions">
@@ -139,9 +140,9 @@
                   <article id="rendered-body"></article>
                 </section>
                 <details id="article-settings" class="settings">
-                  <summary>摘要、分类与文章设置 <span id="settings-summary" class="muted"></span></summary>
+                  <summary>摘要、主题与文章设置 <span id="settings-summary" class="muted"></span></summary>
                   <label
-                    >摘要<textarea
+                    >摘要（可选）<textarea
                       name="description"
                       rows="2"
                       maxlength="10000"
@@ -150,17 +151,25 @@
                   </label>
                   <div class="two">
                     <label>发布日期<input name="pubDate" type="date" required /></label
-                    ><label class="checkbox"><input name="draft" type="checkbox" />草稿（不公开）</label>
+                    ><label class="checkbox"><input name="draft" type="checkbox" />保留为草稿</label>
                   </div>
+                  <p class="field-help">取消勾选表示定稿，不会自动发布。草稿不进入模拟公开地图。</p>
                   <fieldset class="topics-fieldset">
-                    <legend>主题分类</legend>
-                    <p class="field-help">按名称选择分类。地图中的文章入口在「管理目录」中单独安排。</p>
-                    <div id="topic-options"></div>
+                    <legend>文章主题</legend>
+                    <p class="field-help">主题说明文章讨论什么；地图入口决定读者从哪里找到它。两者独立维护。</p>
+                    <ul id="selected-topics" aria-label="已选主题"></ul>
+                    <p id="topic-selected-empty" class="field-help">尚未选择主题。</p>
+                    <details id="topic-picker">
+                      <summary>选择或调整主题</summary>
+                      <label>搜索主题<input id="topic-search" type="search" placeholder="按主题名称或路径筛选" autocomplete="off" /></label>
+                      <div id="topic-options"></div>
+                      <p id="topic-no-match" class="field-help" hidden>没有匹配的主题。清空搜索可查看全部。</p>
+                    </details>
                     <input name="topics" type="hidden" />
                   </fieldset>
                   <details class="advanced">
                     <summary>高级：链接标识与文件路径</summary>
-                    <p class="field-help">已自动填写，通常无需修改。文章 ID 首次保存后固定，决定文章链接。</p>
+                    <p class="field-help">已自动填写，通常无需修改。稳定 ID 首次保存后锁定，决定文章链接；文件路径可调整，不改变链接。</p>
                     <div class="two">
                       <label
                         >稳定 ID<input
@@ -168,8 +177,9 @@
                           required
                           pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
                           maxlength="128" /></label
-                      ><label>文件路径<input name="path" required placeholder="articles/example.md" /></label>
+                      ><label>文件路径<input name="path" required placeholder="articles/example.md" aria-describedby="path-change-note" /></label>
                     </div>
+                    <p id="path-change-note" class="field-help" hidden>文件路径已修改。本次只保存到私有快照；未来发布时需要按文件移动核对。</p>
                   </details>
                 </details>
               </fieldset>
@@ -292,6 +302,7 @@
           </div>
         </div>
         <p id="preview-caption" role="status"></p>
+        <p id="map-scroll-hint" class="field-help" hidden>窄屏可左右滚动画布；摘要显示在画布下方。</p>
         <div class="preview-viewport"><div id="map-preview"></div></div>
       </section>
     </main>
