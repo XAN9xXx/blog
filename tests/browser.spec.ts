@@ -48,6 +48,8 @@ test('homepage empty player, navigation, theme persistence, and responsive layou
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '技术地图' })).toBeVisible();
   await expect(page.getByText('点击主题，逐层展开。')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '音乐', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '音乐播放器', exact: true })).toBeVisible();
   await expect(page.getByText('还没有添加音乐')).toBeVisible();
   const player = page.locator('#music');
   for (const control of await player.locator('button, input').all()) await expect(control).toBeDisabled();

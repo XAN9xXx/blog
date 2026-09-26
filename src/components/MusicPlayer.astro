@@ -5,8 +5,7 @@ interface Props { tracks: MusicTrack[] }
 const { tracks } = Astro.props;
 const first = tracks[0];
 ---
-<section id="music" class="music" aria-labelledby="music-title" data-music-player data-tracks={JSON.stringify(tracks)}>
-  <h2 id="music-title">音乐</h2>
+<section id="music" class="music" aria-label="音乐播放器" data-music-player data-tracks={JSON.stringify(tracks)}>
   <div class="player">
     <div class="now-playing" aria-live="polite" aria-atomic="true">
       <p class="track-title" data-track-title>{first?.title ?? '还没有添加音乐'}</p>
@@ -48,7 +47,6 @@ const first = tracks[0];
 <script>import '../scripts/music-player';</script>
 <style>
   .music { padding: 36px 0 28px; border-bottom: var(--hairline); scroll-margin-top: 24px; }
-  h2 { margin: 0; font-size: 32px; line-height: 1.4; font-weight: 600; }
   .player { max-width: 980px; margin: 0 auto; }
   .now-playing { min-height: 30px; text-align: center; overflow-wrap: anywhere; }
   .track-title { margin: 0; font-size: 16px; }
@@ -74,7 +72,6 @@ const first = tracks[0];
   .track-number { color: var(--muted); font: 12px var(--mono); }
   @media (max-width: 600px) {
     .music { padding: 28px 0; }
-    h2 { font-size: 24px; margin-bottom: 20px; }
     .timeline { gap: 8px; flex-wrap: wrap; }
     .volume { flex-basis: 100%; justify-content: flex-end; }
     .transport { gap: 28px; }
