@@ -10,12 +10,12 @@ import { createWorkbenchServer, originConfig } from '../workbench/http';
 import { renderMarkdown } from '../workbench/markdown';
 const password = 'test-only-workbench-password';
 const hash = passwordHash(password);
-async function fixture(t: { after(fn: () => unknown): void }) {
+async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example') {
   const root = mkdtempSync(path.join(tmpdir(), 'workbench-http-'));
   const content = path.join(root, 'content'); cpSync(path.resolve(import.meta.dirname, '../../xan9x-blog-content'), content, { recursive: true });
   writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>Login only</title>');
   const store = new WorkspaceStore(content, path.join(root, 'private'));
-  const server = createWorkbenchServer({ store, origin: 'https://editor.example', passwordHash: await hash, assets: root });
+  const server = createWorkbenchServer({ store, origin, passwordHash: await hash, assets: root });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); });
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No port');
@@ -24,7 +24,7 @@ async function fixture(t: { after(fn: () => unknown): void }) {
   const request = (route: string, value?: unknown, headers: Record<string, string> = {}) => new Promise<Response>((resolve, reject) => {
     const payload = value === undefined ? undefined : JSON.stringify(value);
     const req = httpRequest(base + route, { method: payload === undefined ? 'GET' : 'POST', headers: {
-      Host: 'editor.example', Cookie: cookie, ...(payload === undefined ? {} : { Origin: 'https://editor.example', 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(payload)), 'X-CSRF-Token': csrf }), ...headers,
+      Host: new URL(origin).host, Cookie: cookie, ...(payload === undefined ? {} : { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(payload)), 'X-CSRF-Token': csrf }), ...headers,
     } }, response => {
       const chunks: Buffer[] = []; response.on('data', chunk => chunks.push(chunk)); response.on('error', reject);
       response.on('end', () => { const result = new Headers(); for (const [key, value] of Object.entries(response.headers)) if (value !== undefined) result.set(key, Array.isArray(value) ? value.join(', ') : value);
@@ -93,4 +93,22 @@ test('parallel login attempts cannot multiply scrypt memory consumption', async 
   await assert.rejects(auth.login(password), /正在验证/);
   const session = await first;
   assert.ok(auth.session('workbench_session=' + session.id));
+});
+
+test('loopback browser origin supports a distinct forwarded port without bypassing authentication or CSRF', async t => {
+  // The TCP destination is the random backend port; HTTP Host/Origin stay at the browser-facing port.
+  // This models the application side of local forwarding, not an actual SSH server.
+  const f = await fixture(t, 'http://127.0.0.1:14325');
+  assert.equal((await f.request('/api/workspace')).status, 401);
+  const login = await f.login();
+  assert.match(login.headers.get('set-cookie')!, /HttpOnly; SameSite=Strict/);
+  assert.doesNotMatch(login.headers.get('set-cookie')!, /; Secure/);
+  const state = await (await f.request('/api/workspace')).json();
+  const command = { type: 'addDirectory', id: 'tunnel-test', parentId: 'root', label: 'Tunnel test', kind: 'topic' };
+  assert.equal((await f.request('/api/command', { revision: state.revision, command }, { Origin: 'http://127.0.0.1:4325' })).status, 403);
+  assert.equal((await f.request('/api/command', { revision: state.revision, command }, { 'X-CSRF-Token': '' })).status, 403);
+  assert.equal((await f.request('/api/workspace', undefined, { Host: 'localhost:14325' })).status, 403);
+  assert.equal((await f.request('/api/command', { revision: state.revision, command })).status, 200);
+  assert.equal((await f.request('/api/logout', {})).status, 200);
+  assert.equal((await f.request('/api/workspace')).status, 401);
 });
