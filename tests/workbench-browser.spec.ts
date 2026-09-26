@@ -31,7 +31,7 @@ test('private editing binds a new draft, previews safely, persists and never cha
   await page.locator('#map-preview [data-id="software"]').click(); await page.locator(`#map-preview [data-id="${id}-node"]`).click();
   await expect(page.locator('#map-preview .context-panel')).toContainText('浏览器测试草稿');
   await page.locator('#map-preview').getByRole('link', { name: '打开内容 →' }).click();
-  await expect(page).toHaveURL('http://127.0.0.1:4325/'); await expect(article.getByLabel('稳定 ID')).toHaveValue(id);
+  await expect(page).toHaveURL(new URL('/', String(info.project.use.baseURL)).href); await expect(article.getByLabel('稳定 ID')).toHaveValue(id);
   await page.getByRole('button', { name: '删除文章', exact: true }).click(); await expect(page.locator('#message')).toContainText('请先移除或重新绑定');
   await article.getByLabel('标题', { exact: true }).fill('改名后的文章'); await article.getByLabel('草稿（不公开）').uncheck();
   await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
