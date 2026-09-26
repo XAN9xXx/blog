@@ -28,3 +28,7 @@ pnpm-debug.log*
 .topology-package/
 test-results/
 playwright-report/
+
+# Private workbench state and generated UI; never publish.
+.workbench/
+workbench/dist/
