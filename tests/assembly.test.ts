@@ -75,3 +75,15 @@ test('missing content inputs are hard failures, not an empty successful site', t
   const f = setup(t); rmSync(path.join(f.content, 'topology.json'));
   assert.notEqual(f.run().status, 0); assert.ok(!existsSync(f.site));
 });
+
+test('invalid music fails before replacing target; a valid playlist travels with content', t => {
+  const f = setup(t); mkdirSync(f.site); writeFileSync(path.join(f.site, '.site-build.json'), JSON.stringify({ blog: { commit: 'old' }, content: { commit: 'old' } }));
+  writeFileSync(path.join(f.site, 'keep.txt'), 'keep');
+  const manifest = path.join(f.content, 'music/playlist.json');
+  writeFileSync(manifest, JSON.stringify({ version: 1, tracks: [{ id: 'test', title: 'Test only', file: 'fixture.wav' }] }));
+  assert.match(f.run().stderr, /Missing music file/); assert.equal(readFileSync(path.join(f.site, 'keep.txt'), 'utf8'), 'keep');
+  writeFileSync(path.join(f.content, 'music/fixture.wav'), 'test bytes');
+  assert.equal(f.run().status, 0);
+  assert.ok(existsSync(path.join(f.site, 'content/music/playlist.json')));
+  assert.equal(readFileSync(path.join(f.site, 'content/music/fixture.wav'), 'utf8'), 'test bytes');
+});

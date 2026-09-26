@@ -123,3 +123,22 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 本阶段未实现编辑、保存、鉴权或发布 API。
 工作台的普通保存不能向会触发发布的 main 分支推送；草稿保存、私有预览、显式发布将分别设计。
 RSS/sitemap/canonical 所需站点域名、移动端地图可读性和项目内容模型仍是后续工作。
+
+
+## 首页音乐与本地验证
+
+首页保持独立地图组件，文章仍从 `/notes/` 访问；下方音乐模块使用内容仓库 `music/playlist.json`。
+歌单规范见内容仓库 README。音频通过 Astro 静态文件 endpoint 生成到 `dist/music/`，不需要额外服务器、第三方播放器或 Cloudflare 仓库凭据。
+组装预检同样校验歌单和文件；本地无歌单的旧快照按空歌单处理，损坏歌单、无效引用或超过 25 MiB 的文件会阻止构建。
+Cloudflare Pages 单资源限制依据：https://developers.cloudflare.com/pages/platform/limits/#file-size 。
+
+验证步骤：
+
+1. `npm run check && npm test && npm run build`。
+2. `npm run dev -- --background`，打开本地 4321 端口；检查空状态、主题切换、地图钻取和文章入口。
+3. 使用 `node tests/create-music-fixture.mjs` 创建临时组装站点和两段测试 WAV（不会修改正式内容或 `xan9x-site`）。按输出进入临时站点运行离线安装、构建和后台服务。
+4. 指定 `BLOG_MUSIC_TEST_URL=http://127.0.0.1:4324` 后运行 `npm run test:browser`。Windows 验证使用独立无头 Edge，WSL 需自行安装对应 Playwright 浏览器。未指定 fixture URL 时两项音频测试会明确跳过。
+5. 浏览器测试覆盖播放/暂停、进度、音量/静音、切歌、结束后顺序播放、错误恢复、空状态、窄屏及原地图回归。测试 WAV 只在临时目录，不进入生产歌单。
+6. 临时站点验证完在其目录运行 `npm run dev -- stop`，正式本地预览可继续保留。
+
+音乐不自动播放、无跨页持久播放，不含上传界面；这些不属于本次首页改版。大文件若超过 Pages 限额，需要另行确认站内对象存储方案，当前不自动接入外部服务。

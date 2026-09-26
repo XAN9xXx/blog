@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadContentCatalog } from '../src/lib/content-files';
+import { loadMusicCatalog } from '../src/lib/music';
 import { publicAuthoringSource } from '../src/lib/topology-content';
 
 const blogDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -11,7 +12,7 @@ const contentDir = path.resolve(process.env.BLOG_CONTENT_SOURCE ?? path.join(blo
 const siteDir = path.resolve(process.env.SITE_DIR ?? path.join(blogDir, '../xan9x-site'));
 const archive = path.join(blogDir, '.topology-package/topology.tgz');
 const excludedBlogEntries = new Set(['.git', '.github', '.astro', 'dist', 'node_modules', 'docs',
-  '.topology-package', 'test-results', 'playwright-report']);
+  '.topology-package', 'test-results', 'playwright-report', 'design-qa.md']);
 const assetDirectories = ['assets', 'music', 'topics', 'projects'];
 
 function runGit(repository: string, args: string[]): string {
@@ -67,6 +68,7 @@ function assemble(): void {
   console.log('Running preflight checks...');
   checkDestination();
   const sources = { blog: provenance(blogDir), content: provenance(contentDir) };
+  loadMusicCatalog(contentDir);
   const catalog = loadContentCatalog(contentDir); // Includes drafts: broken references must fail too.
   for (const name of assetDirectories) {
     const directory = path.join(contentDir, name);
