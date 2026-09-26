@@ -65,9 +65,9 @@
   --s-96: 96px;
   --s-128: 128px;
 
-  --wrap: 1320px;
-  --gutter: 28px;
-  --header-h: 80px;
+  --wrap: 1288px;
+  --gutter: 24px;
+  --header-h: 84px;
 
   --player-h: 0px;
 
@@ -86,14 +86,14 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #121411;
-  --surface: #191b17;
-  --surface-strong: #1e211c;
-  --ink: #eeeae0;
-  --muted: #9a9b94;
-  --quiet: #666860;
-  --rule: #30332d;
-  --rule-strong: #4b4f46;
+  --bg: #1b1d1c;
+  --surface: #222524;
+  --surface-strong: #292c2b;
+  --ink: #e7e9ea;
+  --muted: #b2b7bb;
+  --quiet: #797f83;
+  --rule: #3b4140;
+  --rule-strong: #8b9295;
   --accent: #93a1ff;
 
   --software: #8497ff;

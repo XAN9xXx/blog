@@ -1,16 +1,54 @@
 ---
 import type { TopologyDocument } from '@xan9x/topology/schema';
 import '@xan9x/topology/style.css';
+import Icon from './Icon.astro';
 interface Props { document: TopologyDocument }
 const { document } = Astro.props;
 ---
-<section class="map-hero" id="map" aria-label="技术地图">
-  <div data-topology-host data-topology-document={JSON.stringify(document)}></div>
+<section class="map-hero" id="map" aria-labelledby="map-title">
+  <h1 id="map-title">技术地图</h1>
+  <nav class="map-controls" aria-label="地图操作">
+    <button type="button" data-map-back disabled>上一层</button>
+    <button type="button" data-map-home>全部主题</button>
+    <span class="pan-controls">
+      <button type="button" data-map-pan="-1" aria-label="向左查看地图"><Icon name="left" size={20} /></button>
+      <button type="button" data-map-pan="1" aria-label="向右查看地图"><Icon name="right" size={20} /></button>
+    </span>
+  </nav>
+  <div class="map-viewport" tabindex="0" role="region" aria-label="可横向滚动的技术地图">
+    <div data-topology-host data-topology-document={JSON.stringify(document)}></div>
+  </div>
   <noscript>交互地图需要 JavaScript。你也可以<a href="/notes/">直接浏览文章列表</a>。</noscript>
 </section>
-<script>
-  import '../scripts/topology';
-</script>
+<script>import '../scripts/topology';</script>
 <style>
-  .map-hero { padding: var(--s-8) 0 var(--s-48); }
+  .map-hero { padding-top: 40px; border-bottom: var(--hairline); scroll-margin-top: 24px; }
+  h1 { margin: 0; font-size: 32px; font-weight: 600; line-height: 1.4; }
+  .map-viewport { overflow-x: auto; overscroll-behavior-x: contain; }
+  [data-topology-host] { min-width: 900px; }
+  .map-hero :global(.xan9x-topology) { --topology-serif: var(--sans); }
+  .map-hero :global(.graph-shell) { border-bottom: 0; }
+  .map-hero :global(.map-footnote), .map-hero :global(.node.root .meta) { display: none; }
+  .map-hero :global(.node .title) { font-weight: 500; }
+  .map-hero :global(.node.topic:not(.current):not(.context-sibling):not(.context-ancestor-old) .title) { font-size: 20px; }
+  .map-hero :global(.node.root.current .halo) { opacity: 0; }
+  .map-hero :global(.node.root.current .dot) { r: 12px; stroke-width: 4; }
+  .map-hero :global(.node.root.current .title) { font-size: 24px; }
+  .map-hero :global(.node .meta) { font-size: 12px; }
+  .map-hero :global(.link.relation) { opacity: .32; }
+  .map-hero :global(.breadcrumb) { max-width: calc(100% - 32px); flex-wrap: wrap; }
+  .map-controls { display: none; }
+  @media (max-width: 900px) {
+    .map-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .map-controls button { border: 0; background: none; padding: 6px; min-height: 44px; min-width: 44px; cursor: pointer; font-size: 14px; }
+    .map-controls button:disabled { color: var(--quiet); cursor: default; }
+    .pan-controls { margin-left: auto; display: flex; }
+    .map-hero :global(.context-panel) { position: fixed; left: 24px; right: 24px; bottom: 24px; width: auto; max-height: 70vh; overflow-y: auto; }
+    .map-hero :global(.breadcrumb) { display: none; }
+  }
+  @media (max-width: 600px) {
+    .map-hero { padding-top: 28px; }
+    h1 { font-size: 24px; }
+    .map-viewport { margin-top: 12px; }
+  }
 </style>

@@ -1,89 +1,26 @@
 ---
 import ThemeToggle from './ThemeToggle.astro';
 ---
-
-<header class="site-header">
-  <div class="wrap nav">
-    <a
-      class="brand"
-      href="/"
-    >
-      XAN9x
-    </a>
-
-    <nav
-      class="nav-right"
-      aria-label="主导航"
-    >
-      <a href="/#map">
-        Topics
-      </a>
-
-      <a href="/notes/">
-        Writing
-      </a>
-
-      <a href="/#about">
-        About
-      </a>
-
-      <a
-        href="https://github.com/XAN9xXx"
-        target="_blank"
-        rel="noreferrer"
-      >
-        GitHub ↗
-      </a>
-
-      <ThemeToggle />
-    </nav>
-  </div>
+<header class="wrap site-header">
+  <a class="brand" href="/">XAN9x</a>
+  <nav class="nav-right" aria-label="主导航">
+    <a href="/notes/">文章</a>
+    <a href="/#map">地图</a>
+    <a href="/#music">音乐</a>
+    <a href="https://github.com/XAN9xXx" target="_blank" rel="noreferrer">GitHub</a>
+    <ThemeToggle />
+  </nav>
 </header>
-
 <style>
-  .site-header {
-    border-bottom: var(--hairline);
-  }
-
-  .nav {
-    min-height: var(--header-h);
-
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    gap: var(--s-24);
-  }
-
-  .brand {
-    font:
-      900
-      var(--fs-22) / 1
-      var(--serif);
-
-    letter-spacing: -.01em;
-    text-decoration: none;
-  }
-
-  .nav-right {
-    display: flex;
-    align-items: center;
-
-    gap: var(--s-24);
-  }
-
-  .nav-right a {
-    color: var(--muted);
-    font-size: var(--fs-14);
-    text-decoration: none;
-
-    transition:
-      color
-      var(--dur-1)
-      var(--ease);
-  }
-
-  .nav-right a:hover {
-    color: var(--ink);
+  .site-header { min-height: var(--header-h); display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: var(--hairline); }
+  .brand { font: 600 32px/1 var(--sans); letter-spacing: .01em; text-decoration: none; }
+  .nav-right { display: flex; align-items: center; gap: 32px; }
+  .nav-right a { display: inline-flex; align-items: center; min-height: 44px; font-size: 16px; text-decoration: none; }
+  .nav-right a:hover { color: var(--accent); }
+  @media (max-width: 600px) {
+    .site-header { flex-wrap: wrap; gap: 4px; padding: 16px 0 8px; }
+    .brand { font-size: 26px; }
+    .nav-right { width: 100%; justify-content: space-between; gap: 12px; }
+    .nav-right a { font-size: 14px; }
   }
 </style>

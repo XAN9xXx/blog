@@ -1,54 +1,19 @@
 ---
-import { getCollection } from 'astro:content';
 import { loadContentCatalog } from '../lib/content-files';
-const { topology } = loadContentCatalog();
-
+import { loadMusicCatalog } from '../lib/music';
 import BaseLayout from '../layouts/BaseLayout.astro';
-
 import SiteHeader from '../components/SiteHeader.astro';
 import TopologyShell from '../components/TopologyShell.astro';
-import Hero from '../components/Hero.astro';
-import NoteList from '../components/NoteList.astro';
+import MusicPlayer from '../components/MusicPlayer.astro';
 import SiteFooter from '../components/SiteFooter.astro';
-
-const articles = (
-  await getCollection('articles')
-)
-  .filter((entry) => !entry.data.draft)
-  .sort(
-    (a, b) =>
-      b.data.pubDate.valueOf()
-      -
-      a.data.pubDate.valueOf()
-  )
-  .slice(0, 3);
-
-const notes = articles.map(
-  (entry) => ({
-    id: entry.id,
-    title: entry.data.title,
-    description: entry.data.description,
-    pubDate: entry.data.pubDate,
-  })
-);
+const { topology } = loadContentCatalog();
+const { tracks } = loadMusicCatalog();
 ---
-
-<BaseLayout
-  title="XAN9x — Interactive Technical Map"
-  description="Software, systems, open source, compilers and technical notes."
->
+<BaseLayout title="XAN9x — 技术地图与音乐" description="软件、Linux、基础设施、开源与编译器，以及一些音乐。">
   <SiteHeader />
-
-  <main
-    class="wrap"
-    id="main"
-  >
+  <main class="wrap" id="main">
     <TopologyShell document={topology.document} />
-
-    <Hero />
-
-    <NoteList notes={notes} />
+    <MusicPlayer tracks={tracks} />
   </main>
-
   <SiteFooter />
 </BaseLayout>
