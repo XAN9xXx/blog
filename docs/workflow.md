@@ -129,13 +129,13 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 - 缺失绑定、引用不存在的文章、重复 ID、无效关系会阻止构建；草稿及其文章节点不进入公开产物。
 - 同一文章可通过不同节点出现在多个分支；移除一个目录入口不等于删除文章文件。
 - 当前浏览器行为是选择文章节点显示详情面板，再通过“打开内容”进入文章。已有端到端测试覆盖真实文章打开和浏览器返回。
-- 当前没有图形化目录编辑、文章编辑、保存、私有预览或发布后台。直接编辑内容文件不等于已完成编辑器。
+- 独立工作台现已提供目录树、文章编辑、私有保存和地图预览；公开站点不含编辑接口。显式发布和远端部署尚未接通。
 
-### 已确认的编辑目标，尚未实现
+### 编辑规则与当前边界
 
-- 编辑器应能维护目录层级、名称和顺序，并创建、修改、移除末端的文章绑定；选择真实文章而不是输入任意链接。
+- 编辑器可维护目录层级、名称和顺序，并创建、修改、移除末端的文章绑定；从文章列表选择真实文章，不输入任意链接。
 - 文章节点的标题等信息跟随文章元数据；文章改名或文件移动而 ID 不变时，目录链接保持有效。
-- 编辑器中应能从文章节点进入对应文章编辑。编辑文章正文仍修改文章内容源，不把正文复制进地图 JSON。
+- 从目录中的文章节点或地图预览的“打开内容”进入对应文章表单。正文保存在私有工作区的 Markdown 文件快照中，不复制进地图 JSON；未来发布时再同步到内容仓库。
 - 移动或删除目录时检查文章入口和关系边；删除文章时先显示引用位置并要求显式处理，不能静默留下失效入口。
 - 编辑预览复用同一地图模块与数据校验，但编辑模式的选择/绑定操作不能意外跳离工作台；公开阅读与私有编辑的行为需要区分。
 - 保存文章及其目录绑定时应校验一致性，不能发布半完成状态；普通保存、私有预览和显式发布保持分离。
@@ -152,8 +152,10 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 
 ## 工作台边界
 
-本阶段未实现编辑、保存、鉴权或发布 API。
-工作台的普通保存不能向会触发发布的 main 分支推送；草稿保存、私有预览、显式发布将分别设计。
+工作台是 `workbench/` 下独立 Node 服务，不是 Astro 公开路由。普通保存不修改内容仓库、不提交 Git、不推送 main，也不会触发站点组装。它只写入权限隔离的私有快照。
+
+已实现：单用户密码登录、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载。
+未实现：远端部署、内容源变更自动合并、快照图形化导入、媒体上传、关系边的独立编辑界面、显式 Git 发布及发布状态查询。标为“非草稿”只影响模拟公开预览，不代表已发布。
 RSS/sitemap/canonical 所需站点域名、移动端地图可读性和项目内容模型仍是后续工作。
 
 
@@ -174,3 +176,75 @@ Cloudflare Pages 单资源限制依据：https://developers.cloudflare.com/pages
 6. 临时站点验证完在其目录运行 `npm run dev -- stop`，正式本地预览可继续保留。
 
 音乐不自动播放、无跨页持久播放，不含上传界面；这些不属于本次首页改版。大文件若超过 Pages 限额，需要另行确认站内对象存储方案，当前不自动接入外部服务。
+
+
+## 私有工作台：运行与上线闸门
+
+### 本地验证
+
+需要 Node 24 和完整依赖（包含 devDependencies）。先准备地图包并 `npm ci`，再运行：
+
+~~~sh
+npm run workbench:build
+# Bash：静默读取密码，标准输入传给哈希工具；不把明文写进历史或命令参数。
+read -rs -p 'Workbench password (12+ characters): ' password; printf '\n'
+export WORKBENCH_PASSWORD_HASH="$(printf '%s' "$password" | npm run workbench:password --silent)"
+unset password
+export WORKBENCH_ORIGIN=http://127.0.0.1:4325
+npm run workbench:start
+~~~
+
+通过 `http://127.0.0.1:4325` 访问。必须使用与 WORKBENCH_ORIGIN 完全一致的地址，不能混用 localhost 和 127.0.0.1。缺少有效密码哈希会拒绝启动。进程固定监听回环地址，不会直接暴露到公网。
+
+变量：
+
+| 变量 | 默认值 / 约束 |
+| --- | --- |
+| WORKBENCH_ORIGIN | http://127.0.0.1:4325；远程地址必须使用 HTTPS，不能包含路径 |
+| WORKBENCH_PORT | 4325，1024–65535；服务仅监听 127.0.0.1 |
+| WORKBENCH_PASSWORD_HASH | 必填，使用上述命令生成；不接受明文或默认密码 |
+| WORKBENCH_CONTENT_DIR | 相邻内容仓库；只读导入文章和 topology.json，不读取 Git 凭据 |
+| WORKBENCH_STATE_DIR | 引擎内 .workbench；VPS 建议 /var/lib/xan9x-workbench |
+
+仓库内状态只能位于 `.workbench/`；不能放到内容源、public、src、dist 或生成 site 中。工作台代码、构建产物、私有状态及工作台测试均由组装脚本排除。不要把真实环境文件放入公开资源目录。
+
+### 保存语义与恢复边界
+
+- 首次启动从内容源读取完整目录及 Markdown，生成单一私有快照。原始内容仓库完全不变。
+- 表单提交先对整份文章/目录快照执行相同 schema 和引用校验，再以写锁、临时文件、fsync 和 rename 保存。文章与绑定不会处于半写入状态。
+- API 要求当前 revision；旧页面保存返回 409，保留表单输入，不覆盖另一页面的新版本。
+- 若内容源的文章或目录发生外部变化，界面提示需要核对合并；不会静默重新导入或覆盖私有编辑。此版本没有自动合并按钮。
+- 已有文章 ID 在界面不可修改；可改标题和文件路径。首版工作台文件路径限 ASCII `articles/目录/文件.md`，所有路径均校验且不允许越界。
+- 保留未编辑文章的原始 Markdown；编辑过的文章重新序列化 YAML，保留额外 frontmatter 字段，但不保证注释/排版逐字节保留。
+- 删除文章前必须解除所有目录入口；移除目录会连带移除其入口与关系边，但不会删除正文。被文章 topics 引用的分类需先解除引用。
+- 导出包含草稿和正文，属于私有备份，不是可公开发布的 site。常规备份对象是 WORKBENCH_STATE_DIR，不要将其加入公开仓库。
+- 异常终止可能留下 write.lock，服务会拒绝后续保存而不是强行覆盖。只有在确认进程已停止并检查快照后，管理员才能清理遗留锁；不提供自动破锁。
+- 会话保存在内存；重启后需要重新登录。空闲 1 小时或登录满 8 小时失效；退出立即撤销。单用户登录有全局速率限制，同一时间只执行一次密码推导。
+
+### VPS 上线前需要用户参与
+
+示例配置在 `workbench/workbench.env.example`，systemd 模板在 `workbench/xan9x-workbench.service`，当前没有安装或启动到 VPS。
+
+上线需先确定：工作台域名、现有 HTTPS 反向代理/Cloudflare Tunnel 方式、部署工作副本路径、只读内容工作副本路径，以及低权限服务用户。`/srv/git/*.git` 是裸仓库，不能直接作为 WORKBENCH_CONTENT_DIR。
+
+- 模板假设代码位于 /opt/xan9x-blog、Node 位于 /usr/bin/node；部署时必须核实，不自动改动现有服务。
+- 反向代理到 127.0.0.1:4325，并保留与 WORKBENCH_ORIGIN 相符的 Host 与浏览器 Origin。不得缓存工作台页面/API，也不要移除登录保护。
+- 用专门的非 root 用户运行，仅赋予代码和内容源读取权限、私有状态目录写权限；不授予 Git 发布凭据。
+- 密码由用户在 VPS 本地设置，不发送到聊天。环境文件留在仓库外并限制权限。远程会话使用 Secure / HttpOnly / SameSite=Strict Cookie；写请求另校验 Origin 与会话 CSRF token。
+- 先完成 HTTPS、登录、保存后重启恢复、两页冲突、草稿不泄露和退出失效的远端验收，再设计发布候选、差异确认与显式推送流程。当前不存在可调用的发布接口。
+
+安全实现参考：[OWASP 身份验证](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)、[OWASP CSRF 防护](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)、[Node 24 scrypt](https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptoscryptpassword-salt-keylen-options-callback)。这不是第三方安全审计结论。
+
+### 工作台验收
+
+~~~sh
+npm run check
+npm test
+npm run workbench:build
+# 临时副本 + 临时私有状态，仅测试用密码；不要把此夹具部署到 VPS。
+node --import tsx tests/workbench-fixture.ts
+# 另一终端（Windows 使用隔离 Edge；Linux 需要 Playwright Chromium）：
+npm run workbench:test:browser
+~~~
+
+测试覆盖认证/会话/CSRF、无效编辑回滚、版本冲突、目录操作、引用保护、草稿与空目录的双模式预览、Markdown 注入防护、编辑后重新加载、地图回到文章表单，以及桌面/平板/手机布局。浏览器夹具只修改临时内容副本；停止进程后自动清理。

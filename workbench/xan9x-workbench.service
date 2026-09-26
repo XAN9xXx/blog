@@ -1,0 +1,26 @@
+[Unit]
+Description=XAN9x private blog workbench
+After=network.target
+
+[Service]
+Type=simple
+User=xan9x-workbench
+Group=xan9x-workbench
+WorkingDirectory=/opt/xan9x-blog
+EnvironmentFile=/etc/xan9x-workbench.env
+ExecStart=/usr/bin/node --import tsx workbench/server.ts
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StateDirectory=xan9x-workbench
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/xan9x-workbench
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
