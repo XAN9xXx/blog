@@ -7,20 +7,30 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "npm run validate:content && astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "assemble": "tsx scripts/assemble.ts"
+    "assemble": "tsx scripts/assemble.ts",
+    "topology:prepare": "node scripts/prepare-topology.mjs",
+    "check": "astro check",
+    "test": "tsx --test tests/*.test.ts",
+    "validate:content": "tsx scripts/validate-content.ts",
+    "test:browser": "playwright test"
   },
   "dependencies": {
-    "astro": "^7.3.3"
+    "@xan9x/topology": "file:.topology-package/topology.tgz",
+    "astro": "^7.3.3",
+    "gray-matter": "^4.0.3",
+    "zod": "^4.6.5"
   },
   "allowScripts": {
     "esbuild": true
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.2",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^6.0.0"
   }
 }

@@ -1,0 +1,104 @@
+:root {
+  color-scheme: light;
+
+  --bg: #f1f0eb;
+  --surface: #f8f7f2;
+  --surface-strong: #ffffff;
+  --ink: #1b1d20;
+  --muted: #72736f;
+  --quiet: #a1a19a;
+  --rule: #d3d1c9;
+  --rule-strong: #b8b6ad;
+  --accent: #596edc;
+
+  --software: #657df2;
+  --systems: #42aa92;
+  --infra: #d18d3f;
+  --oss: #a86ec0;
+  --compiler: #d86d78;
+
+  --serif:
+    "Noto Serif SC",
+    "Source Han Serif SC",
+    "Songti SC",
+    "STSong",
+    serif;
+
+  --sans:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Noto Sans SC",
+    system-ui,
+    sans-serif;
+
+  --mono:
+    "IBM Plex Mono",
+    "Cascadia Code",
+    "JetBrains Mono",
+    Consolas,
+    monospace;
+
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  --fs-22: 22px;
+  --fs-28: 28px;
+  --fs-display: clamp(32px, 3.4vw, 46px);
+
+  --lh-tight: 1.15;
+  --lh-mid: 1.5;
+  --lh-body: 1.75;
+
+  --s-4: 4px;
+  --s-8: 8px;
+  --s-12: 12px;
+  --s-16: 16px;
+  --s-24: 24px;
+  --s-32: 32px;
+  --s-48: 48px;
+  --s-64: 64px;
+  --s-96: 96px;
+  --s-128: 128px;
+
+  --wrap: 1320px;
+  --gutter: 28px;
+  --header-h: 80px;
+
+  --player-h: 0px;
+
+  --graph-w: 1320;
+  --graph-h: 680;
+
+  --radius: 0;
+  --shadow: none;
+  --hairline: 1px solid var(--rule);
+
+  --dur-1: .16s;
+  --dur-2: .28s;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #121411;
+  --surface: #191b17;
+  --surface-strong: #1e211c;
+  --ink: #eeeae0;
+  --muted: #9a9b94;
+  --quiet: #666860;
+  --rule: #30332d;
+  --rule-strong: #4b4f46;
+  --accent: #93a1ff;
+
+  --software: #8497ff;
+  --systems: #62c7ae;
+  --infra: #dfa052;
+  --oss: #c088d3;
+  --compiler: #e17d87;
+}

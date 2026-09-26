@@ -1,23 +1,14 @@
-import { defineCollection, z } from 'astro:content';
+import { defineCollection } from 'astro:content';
 import { glob } from 'astro/loaders';
+import { articleSchema, contentId } from './lib/topology-content';
+import { contentDirectory, loadContentCatalog } from './lib/content-files';
 
-const contentRoot =
-  process.env.BLOG_CONTENT_DIR ??
-  '../xan9x-blog-content';
-
+const contentRoot = contentDirectory();
+// Fail before Astro can silently overwrite duplicate IDs or ignore a missing directory.
+loadContentCatalog(contentRoot);
 const articles = defineCollection({
-  loader: glob({
-    pattern: '**/*.md',
-    base: `${contentRoot}/articles`,
-  }),
-  schema: z.object({
-    title: z.string(),
-    description: z.string(),
-    pubDate: z.coerce.date(),
-    draft: z.boolean().default(false),
-  }),
+  loader: glob({ pattern: '**/*.md', base: contentRoot + '/articles',
+    generateId: ({ data }) => contentId.parse(data.id) }),
+  schema: articleSchema,
 });
-
-export const collections = {
-  articles,
-};
+export const collections = { articles };

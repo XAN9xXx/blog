@@ -1,0 +1,67 @@
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding-bottom: var(--player-h);
+  background: var(--bg);
+  color: var(--ink);
+  font: var(--fs-16) / var(--lh-body) var(--sans);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+button,
+a {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+}
+
+.skip-link:focus-visible {
+  left: var(--gutter);
+  top: var(--s-8);
+  z-index: 20;
+  padding: var(--s-8) var(--s-12);
+  background: var(--surface-strong);
+  border: var(--hairline);
+}
+
+.wrap {
+  width: min(
+    var(--wrap),
+    calc(100% - var(--gutter) * 2)
+  );
+  margin: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

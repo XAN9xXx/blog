@@ -1,0 +1,150 @@
+---
+import { articleHref } from '../lib/topology-content';
+import SectionHeader from './SectionHeader.astro';
+
+interface Note {
+  id: string;
+  title: string;
+  description: string;
+  pubDate: Date;
+}
+
+interface Props {
+  notes: Note[];
+}
+
+const {
+  notes,
+} = Astro.props;
+---
+
+<section
+  class="latest"
+  id="writing"
+>
+  <SectionHeader
+    number="01"
+    title="最近在写"
+  />
+
+  <div class="latest-list">
+    {
+      notes.map((note) => (
+        <a
+          class="latest-item"
+          href={articleHref(note.id)}
+        >
+          <time datetime={note.pubDate.toISOString()}>
+            {
+              note.pubDate
+                .toISOString()
+                .slice(0, 10)
+                .replaceAll('-', '.')
+            }
+          </time>
+
+          <div>
+            <h3>
+              {note.title}
+            </h3>
+
+            <p>
+              {note.description}
+            </p>
+          </div>
+
+          <span
+            class="arr"
+            aria-hidden="true"
+          >
+            →
+          </span>
+        </a>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .latest {
+    border-top: var(--hairline);
+
+    padding:
+      var(--s-16)
+      0
+      var(--s-96);
+  }
+
+  .latest-list {
+    margin-top: var(--s-16);
+
+    border-top: var(--hairline);
+  }
+
+  .latest-item {
+    display: grid;
+
+    grid-template-columns:
+      128px
+      minmax(0, 1fr)
+      32px;
+
+    gap: var(--s-24);
+    align-items: baseline;
+
+    padding:
+      var(--s-24)
+      0;
+
+    border-bottom: var(--hairline);
+
+    text-decoration: none;
+  }
+
+  time {
+    color: var(--muted);
+
+    font:
+      var(--fs-12)
+      var(--mono);
+  }
+
+  h3 {
+    margin: 0;
+
+    font:
+      700
+      var(--fs-18) /
+      var(--lh-mid)
+      var(--serif);
+  }
+
+  p {
+    max-width: 38em;
+
+    margin:
+      var(--s-4)
+      0
+      0;
+
+    color: var(--muted);
+
+    font-size: var(--fs-14);
+    line-height: var(--lh-mid);
+  }
+
+  .arr {
+    justify-self: end;
+
+    color: var(--quiet);
+
+    transition:
+      transform
+      var(--dur-1)
+      var(--ease);
+  }
+
+  .latest-item:hover .arr {
+    transform: translateX(4px);
+  }
+</style>

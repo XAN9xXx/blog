@@ -1,0 +1,120 @@
+<section class="intro">
+  <div>
+    <div class="kicker">
+      software / systems / open source
+    </div>
+
+    <h1>
+      做过的东西，<br />
+      和弄明白它们的过程。
+    </h1>
+  </div>
+
+  <div class="intro-copy">
+    <p>
+      这里记录我在
+      <strong>软件、Linux、基础设施、开源和编译器</strong>
+      中真正做过的东西，以及它们之间逐渐形成的联系。
+    </p>
+
+    <p>
+      下面不是技能表，而是一张逐层展开的技术地图。
+      选择一个方向，拓扑会沿着这个节点所在的方向继续生长。
+    </p>
+
+    <a class="jump" href="#map">
+      进入地图
+      <span>↓</span>
+    </a>
+  </div>
+</section>
+
+<style>
+  .intro {
+    display: grid;
+    grid-template-columns:
+      minmax(0, 5fr)
+      minmax(0, 7fr);
+
+    gap: var(--s-64);
+
+    padding:
+      var(--s-32)
+      0
+      var(--s-48);
+  }
+
+  .kicker {
+    margin-bottom: var(--s-16);
+
+    color: var(--muted);
+
+    font:
+      var(--fs-11) / 1.4
+      var(--mono);
+
+    letter-spacing: .09em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0;
+    max-width: 12em;
+
+    font:
+      900
+      var(--fs-display) /
+      var(--lh-tight)
+      var(--serif);
+
+    letter-spacing: 0;
+  }
+
+  .intro-copy {
+    max-width: 40em;
+    padding-top: var(--s-8);
+  }
+
+  .intro-copy p {
+    margin:
+      0
+      0
+      var(--s-16);
+
+    color: var(--muted);
+
+    font-size: var(--fs-18);
+    line-height: var(--lh-body);
+  }
+
+  .intro-copy strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .jump {
+    display: inline-flex;
+    gap: var(--s-8);
+
+    margin-top: var(--s-8);
+
+    color: var(--ink);
+    text-decoration: none;
+
+    border-bottom:
+      1px
+      solid
+      var(--rule-strong);
+  }
+
+  .jump span {
+    transition:
+      transform
+      var(--dur-1)
+      var(--ease);
+  }
+
+  .jump:hover span {
+    transform: translateY(2px);
+  }
+</style>

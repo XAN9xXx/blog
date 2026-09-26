@@ -1,0 +1,16 @@
+---
+import type { TopologyDocument } from '@xan9x/topology/schema';
+import '@xan9x/topology/style.css';
+interface Props { document: TopologyDocument }
+const { document } = Astro.props;
+---
+<section class="map-hero" id="map" aria-label="技术地图">
+  <div data-topology-host data-topology-document={JSON.stringify(document)}></div>
+  <noscript>交互地图需要 JavaScript。你也可以<a href="/notes/">直接浏览文章列表</a>。</noscript>
+</section>
+<script>
+  import '../scripts/topology';
+</script>
+<style>
+  .map-hero { padding: var(--s-8) 0 var(--s-48); }
+</style>

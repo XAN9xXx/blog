@@ -1,17 +1,54 @@
 ---
+import { getCollection } from 'astro:content';
+import { loadContentCatalog } from '../lib/content-files';
+const { topology } = loadContentCatalog();
 
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+import SiteHeader from '../components/SiteHeader.astro';
+import TopologyShell from '../components/TopologyShell.astro';
+import Hero from '../components/Hero.astro';
+import NoteList from '../components/NoteList.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+
+const articles = (
+  await getCollection('articles')
+)
+  .filter((entry) => !entry.data.draft)
+  .sort(
+    (a, b) =>
+      b.data.pubDate.valueOf()
+      -
+      a.data.pubDate.valueOf()
+  )
+  .slice(0, 3);
+
+const notes = articles.map(
+  (entry) => ({
+    id: entry.id,
+    title: entry.data.title,
+    description: entry.data.description,
+    pubDate: entry.data.pubDate,
+  })
+);
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<BaseLayout
+  title="XAN9x — Interactive Technical Map"
+  description="Software, systems, open source, compilers and technical notes."
+>
+  <SiteHeader />
+
+  <main
+    class="wrap"
+    id="main"
+  >
+    <TopologyShell document={topology.document} />
+
+    <Hero />
+
+    <NoteList notes={notes} />
+  </main>
+
+  <SiteFooter />
+</BaseLayout>

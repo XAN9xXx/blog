@@ -1,0 +1,48 @@
+<button
+  class="theme"
+  id="themeToggle"
+  type="button"
+  aria-label="切换主题"
+>
+  ◐
+</button>
+
+<script>
+  const button = document.getElementById('themeToggle');
+
+  button?.addEventListener('click', () => {
+    const root = document.documentElement;
+
+    const next =
+      root.dataset.theme === 'dark'
+        ? 'light'
+        : 'dark';
+
+    root.dataset.theme = next;
+
+    try {
+      localStorage.setItem('theme', next);
+    } catch {
+      // localStorage unavailable: theme still changes for this page.
+    }
+  });
+</script>
+
+<style>
+  .theme {
+    border: 0;
+    background: none;
+    padding: var(--s-4);
+    cursor: pointer;
+    color: var(--muted);
+
+    transition:
+      color
+      var(--dur-1)
+      var(--ease);
+  }
+
+  .theme:hover {
+    color: var(--ink);
+  }
+</style>

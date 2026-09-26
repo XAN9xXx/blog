@@ -23,3 +23,8 @@ pnpm-debug.log*
 # jetbrains setting folder
 .idea/
 !.env.example
+
+# Prepared locally/CI; copied into the generated site, not the engine repository.
+.topology-package/
+test-results/
+playwright-report/

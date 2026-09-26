@@ -1,0 +1,82 @@
+---
+interface Props {
+  number: string;
+  title: string;
+}
+
+const {
+  number,
+  title,
+} = Astro.props;
+
+const hasAside =
+  Astro.slots.has('aside');
+---
+
+<div class="section-head">
+  <div class="section-head-left">
+    <span class="num">
+      {number}
+    </span>
+
+    <h2>
+      {title}
+    </h2>
+  </div>
+
+  {
+    hasAside && (
+      <div class="section-aside">
+        <slot name="aside" />
+      </div>
+    )
+  }
+</div>
+
+<style>
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+
+    gap: var(--s-24);
+
+    min-height: 48px;
+  }
+
+  .section-head-left {
+    display: flex;
+    align-items: baseline;
+
+    gap: var(--s-16);
+  }
+
+  .num {
+    color: var(--quiet);
+
+    font:
+      var(--fs-11)
+      var(--mono);
+
+    letter-spacing: .08em;
+  }
+
+  h2 {
+    margin: 0;
+
+    font:
+      700
+      var(--fs-22) /
+      var(--lh-mid)
+      var(--serif);
+  }
+
+  .section-aside {
+    min-width: 0;
+
+    color: var(--muted);
+
+    font-size: var(--fs-14);
+    text-align: right;
+  }
+</style>

@@ -1,0 +1,89 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+---
+
+<header class="site-header">
+  <div class="wrap nav">
+    <a
+      class="brand"
+      href="/"
+    >
+      XAN9x
+    </a>
+
+    <nav
+      class="nav-right"
+      aria-label="主导航"
+    >
+      <a href="/#map">
+        Topics
+      </a>
+
+      <a href="/notes/">
+        Writing
+      </a>
+
+      <a href="/#about">
+        About
+      </a>
+
+      <a
+        href="https://github.com/XAN9xXx"
+        target="_blank"
+        rel="noreferrer"
+      >
+        GitHub ↗
+      </a>
+
+      <ThemeToggle />
+    </nav>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    border-bottom: var(--hairline);
+  }
+
+  .nav {
+    min-height: var(--header-h);
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: var(--s-24);
+  }
+
+  .brand {
+    font:
+      900
+      var(--fs-22) / 1
+      var(--serif);
+
+    letter-spacing: -.01em;
+    text-decoration: none;
+  }
+
+  .nav-right {
+    display: flex;
+    align-items: center;
+
+    gap: var(--s-24);
+  }
+
+  .nav-right a {
+    color: var(--muted);
+    font-size: var(--fs-14);
+    text-decoration: none;
+
+    transition:
+      color
+      var(--dur-1)
+      var(--ease);
+  }
+
+  .nav-right a:hover {
+    color: var(--ink);
+  }
+</style>
