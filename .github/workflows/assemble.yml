@@ -53,9 +53,51 @@ jobs:
           cache: npm
           cache-dependency-path: blog/package-lock.json
 
+      - name: Read pinned Topology revision
+        id: topology
+        working-directory: blog
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const source = JSON.parse(fs.readFileSync("topology-source.json", "utf8"));
+            if (source.repository !== "XAN9xXx/blog-topology" || !/^[a-f0-9]{40}$/.test(source.commit ?? "")) {
+              throw new Error("Set topology-source.json to the first approved/pushed full commit SHA; refusing floating main.");
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "commit=" + source.commit + "\n");
+          '
+
+      - name: Checkout pinned Topology
+        uses: actions/checkout@v4
+        with:
+          repository: XAN9xXx/blog-topology
+          ref: ${{ steps.topology.outputs.commit }}
+          token: ${{ secrets.BLOG_TOPOLOGY_TOKEN }}
+          path: xan9x-blog-topology
+          persist-credentials: false
+
+      - name: Validate Topology module
+        working-directory: xan9x-blog-topology
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Prepare Topology package
+        working-directory: blog
+        run: npm run topology:prepare -- --source ../xan9x-blog-topology
+
       - name: Install Blog dependencies
         working-directory: blog
         run: npm ci
+
+      - name: Validate Blog and Content
+        working-directory: blog
+        env:
+          BLOG_CONTENT_DIR: ../xan9x-blog-content
+        run: |
+          npm run check
+          npm test
+          npm run validate:content
 
       - name: Assemble Site
         working-directory: blog
