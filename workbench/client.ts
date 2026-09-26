@@ -2,7 +2,7 @@ import { mountTopology, type TopologyInstance, type TopologyNode } from '@xan9x/
 import '@xan9x/topology/style.css';
 import './style.css';
 import type { Workspace, Command } from './model';
-import { uniqueId, matchesArticle } from './ui-helpers';
+import { uniqueId, matchesArticle, previewSize } from './ui-helpers';
 
 interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[] } }
 interface State { revision: string; sourceChanged: boolean; workspace: Workspace; articles: Article[] }
@@ -16,7 +16,7 @@ let csrf = ''; let state: State; let selectedNode = ''; let selectedArticle: str
 let creating = false; let pending = false; let view: View = 'articles';
 let map: TopologyInstance | undefined;
 let mapDocument: Parameters<typeof mountTopology>[1] | undefined;
-let mapWidth = 0; let mapMode: 'editing' | 'public' = 'public';
+let mapWidth = 0; let mapHeight = 0; let mapMode: 'editing' | 'public' = 'public';
 let articleSeed = ''; let autoArticleId = ''; let autoArticlePath = ''; let autoDirectoryId = ''; let directorySeed = '';
 const dirtyForms = new Set<string>();
 const expandedNodes = new Set<string>();
@@ -274,11 +274,21 @@ $('remove-node').addEventListener('click', () => {
   void action(() => save({ type: 'removeNode', id: selectedNode, confirm: true }));
 });
 $('collapse-tree').addEventListener('click', () => { expandedNodes.clear(); expandedNodes.add(state.workspace.topology.document.root.id); renderTree(); });
-function drawMap() {
+function mapSize() {
+  const viewport = $('map-preview').parentElement!;
+  return previewSize(viewport.clientWidth, window.innerHeight, viewport.getBoundingClientRect().top + window.scrollY);
+}
+function drawMap(preserveFocus = false) {
   if (!mapDocument || view !== 'preview') return;
-  mapWidth = Math.max(640, Math.floor($('map-preview').parentElement!.clientWidth));
+  const previous = preserveFocus ? map?.getState() : undefined;
+  ({ width: mapWidth, height: mapHeight } = mapSize());
   $('map-preview').style.minWidth = mapWidth + 'px';
-  map?.destroy(); map = mountTopology($('map-preview'), mapDocument, { width: mapWidth, height: Math.min(640, Math.max(460, mapWidth * .52)), animate: false,
+  $('map-preview').style.setProperty('--preview-canvas-height', mapHeight + 'px');
+  // Keep the renderer's proven logical geometry; fit the SVG instead of squeezing nodes against its edges.
+  const logicalHeight = Math.max(mapHeight, Math.min(640, Math.max(460, mapWidth * .52)));
+  $('map-preview').style.setProperty('--preview-visible-width', $('map-preview').parentElement!.clientWidth + 'px');
+  map?.destroy(); map = mountTopology($('map-preview'), mapDocument, { width: mapWidth, height: logicalHeight,
+    initialFocusId: previous?.selectedId ?? previous?.focusId,
     onNavigate(_href, node, event) { event.preventDefault(); if (!discard()) return; clearDirty(); selectedNode = node.id; creating = false; selectedArticle = state.workspace.topology.articleRefs[node.id]; render(); setView('articles'); field('article-form', 'title').focus(); }
   });
 }
@@ -290,7 +300,18 @@ async function showMap(mode: 'editing' | 'public') {
 }
 $('preview-editing').addEventListener('click', () => void action(() => showMap('editing')));
 $('preview-public').addEventListener('click', () => void action(() => showMap('public')));
-new ResizeObserver(() => { if (view === 'preview' && mapDocument && Math.max(640, Math.floor($('map-preview').parentElement!.clientWidth)) !== mapWidth) drawMap(); }).observe($('map-preview').parentElement!);
+let mapResizeFrame = 0;
+function resizeMap() {
+  cancelAnimationFrame(mapResizeFrame);
+  mapResizeFrame = requestAnimationFrame(() => {
+    if (view !== 'preview' || !mapDocument) return;
+    const size = mapSize();
+    $('map-preview').style.setProperty('--preview-visible-width', $('map-preview').parentElement!.clientWidth + 'px');
+    if (size.width !== mapWidth || size.height !== mapHeight) drawMap(true);
+  });
+}
+new ResizeObserver(resizeMap).observe($('map-preview').parentElement!);
+window.addEventListener('resize', resizeMap);
 $('reconnect-session').addEventListener('click', () => location.replace('/'));
 async function connect() {
   try {

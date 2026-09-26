@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uniqueId, matchesArticle } from '../workbench/ui-helpers';
+import { uniqueId, matchesArticle, previewSize } from '../workbench/ui-helpers';
 
 test('UI identifiers are editable safe defaults, including non-Latin titles', () => {
   assert.equal(uniqueId('My first note!', [], 'note-abc'), 'my-first-note');
@@ -21,4 +21,10 @@ test('article search matches all words across title, summary and ID', () => {
   assert.equal(matchesArticle(a, 'missing', 'all'), false);
   assert.equal(matchesArticle(a, '', 'ready'), false);
   assert.equal(matchesArticle({ ...a, data: { ...a.data, draft: false } }, '', 'ready'), true);
+});
+
+test('preview geometry fits available height without violating map minimum dimensions', () => {
+  assert.deepEqual(previewSize(1374, 840, 318), { width: 1374, height: 418 });
+  assert.deepEqual(previewSize(355, 600, 350), { width: 640, height: 400 });
+  assert.deepEqual(previewSize(1500.9, 1400, 250), { width: 1500, height: 680 });
 });

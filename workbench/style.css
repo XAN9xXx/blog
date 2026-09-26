@@ -13,6 +13,9 @@
 * {
   box-sizing: border-box;
 }
+html {
+  scrollbar-gutter: stable;
+}
 body {
   margin: 0;
 }
@@ -740,9 +743,9 @@ main {
 }
 footer {
   border-top: 1px solid var(--line);
-  max-width: 1456px;
+  max-width: 1520px;
   margin: 0 auto;
-  padding: 18px 0;
+  padding: 18px 32px;
   font-size: 11px;
   color: var(--muted);
 }
@@ -942,16 +945,6 @@ footer {
     font-size: 12px;
     padding: 7px 10px;
   }
-  .preview-viewport .context-panel {
-    position: fixed;
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
-    width: auto;
-    max-height: 70vh;
-    overflow-y: auto;
-    z-index: 35;
-  }
   .feedback {
     right: 16px;
     bottom: 16px;
@@ -1001,3 +994,34 @@ footer {
 }
 
 .connection-state { max-width: 520px; margin: 90px auto; padding: 0 24px; line-height: 1.8; }
+
+/* Keep the embedded inspector out of the SVG; narrow screens scroll only the graph. */
+#map-preview .graph-shell { overflow: visible; }
+#map-preview .graph { height: var(--preview-canvas-height); aspect-ratio: auto; }
+#map-preview .context-panel {
+  position: sticky;
+  left: 0;
+  right: auto;
+  bottom: auto;
+  width: min(100%, var(--preview-visible-width));
+  max-height: none;
+  margin: 0;
+  border-width: 1px 0 0;
+  transform: none;
+  transition: none;
+  overflow-wrap: anywhere;
+}
+#map-preview .map-footnote {
+  position: sticky;
+  left: 0;
+  bottom: auto;
+  width: min(100%, var(--preview-visible-width));
+  padding: 10px 16px;
+}
+#map-preview .breadcrumb {
+  position: sticky;
+  top: auto;
+  right: auto;
+  left: 0;
+  width: min(100%, var(--preview-visible-width));
+}

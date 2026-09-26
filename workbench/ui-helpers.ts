@@ -12,3 +12,8 @@ export function matchesArticle(article: { id: string; data: { title: string; des
   const haystack = `${article.data.title} ${article.data.description} ${article.id}`.toLocaleLowerCase();
   return query.trim().toLocaleLowerCase().split(/\s+/).every(word => haystack.includes(word));
 }
+
+/** Match the module's minimum viewport while fitting ordinary desktop windows. */
+export function previewSize(width: number, viewportHeight: number, top: number) {
+  return { width: Math.max(640, Math.floor(width)), height: Math.max(400, Math.min(680, Math.floor(viewportHeight - Math.max(0, top) - 104))) };
+}

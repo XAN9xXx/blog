@@ -10,6 +10,11 @@ async function login(page: Page) {
 const saved = (page: Page) => expect(page.locator('#message')).toHaveText('已保存到私有工作区，未发布。');
 const view = (page: Page, name: 'articles' | 'directory' | 'preview') => page.locator('#view-' + name).click();
 const settings = (page: Page) => page.locator('#article-settings > summary').click();
+async function mapNode(page: Page, id: string) {
+  await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+  await page.locator(`#map-preview [data-id="${id}"]`).click();
+  await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+}
 async function createDraft(page: Page, title: string) {
   await page.getByRole('button', { name: '新建草稿', exact: true }).click();
   await page.locator('#article-form').getByLabel('标题', { exact: true }).fill(title);
@@ -45,7 +50,7 @@ test('writing, binding and map preview form a safe round trip without manually e
   await expect(page.locator('#preview-caption')).toContainText('模拟公开地图');
   expect(JSON.stringify(await (await publicResponse).json())).not.toContain(nodeId);
   await page.getByRole('button', { name: '完整目录（含草稿）' }).click();
-  await page.locator('#map-preview [data-id="software"]').click(); await page.locator(`#map-preview [data-id="${nodeId}"]`).click();
+  await mapNode(page, 'software'); await mapNode(page, nodeId);
   await expect(page.locator('#map-preview .context-panel')).toContainText('浏览器测试草稿');
   await page.locator('#map-preview').getByRole('link', { name: '打开内容 →' }).click();
   await expect(page).toHaveURL(new URL('/', String(info.project.use.baseURL)).href);
@@ -58,7 +63,7 @@ test('writing, binding and map preview form a safe round trip without manually e
   await article.getByLabel('Software', { exact: true }).check();
   await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
   await view(page, 'preview'); await page.getByRole('button', { name: '模拟公开地图' }).click();
-  await page.locator('#map-preview [data-id="software"]').click(); await page.locator(`#map-preview [data-id="${nodeId}"]`).click();
+  await mapNode(page, 'software'); await mapNode(page, nodeId);
   await expect(page.locator('#map-preview .context-panel')).toContainText('改名后的文章');
   await expect(page.locator('#map-preview .node.current .title')).toHaveCSS('fill', 'rgb(227, 228, 229)');
   await expect(page.locator('#map-preview').getByRole('link', { name: '打开内容 →' })).toHaveAttribute('href', '/notes/' + id + '/');
@@ -153,9 +158,9 @@ test('responsive task views, map return and logout keep private data protected',
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('workbench-directory-mobile.png'), fullPage: true });
   await view(page, 'preview');
-  await page.locator('#map-preview [data-id="infrastructure"]').click();
-  await page.locator('#map-preview [data-id="cicd"]').click();
-  await page.locator('#map-preview [data-id="hello"]').click();
+  await mapNode(page, 'infrastructure');
+  await mapNode(page, 'cicd');
+  await mapNode(page, 'hello');
   const bounds = await page.locator('#map-preview .context-panel').boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -207,4 +212,50 @@ test('SSH mode renews an absent session once without discarding an unsaved artic
   expect(commands).toBe(2); // A rejected 401, then exactly one authenticated retry.
   await expect(body).toHaveValue(/会话失效后，仍然保留并保存当前输入/);
   await expect(body).toBeFocused();
+});
+
+
+test('preview motion, viewport sizing, inspector and page gutters remain usable', async ({ page }, info) => {
+  await login(page); await page.emulateMedia({ reducedMotion: 'no-preference' }); await page.setViewportSize({ width: 1440, height: 840 });
+  const mainLeft = () => page.locator('main').evaluate(el => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
+  const before = await mainLeft();
+  await view(page, 'preview'); await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+  expect(Math.abs(await mainLeft() - before)).toBeLessThan(1);
+  expect(Math.abs(await page.locator('footer').evaluate(el => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft)) - before)).toBeLessThan(1);
+  const svg = await page.locator('#map-preview svg').boundingBox();
+  expect(svg!.y + svg!.height).toBeLessThanOrEqual(840);
+  // Sample intermediate positions, rather than mistaking an immediate jump for animation.
+  await page.evaluate(() => {
+    const sample = { running: true, positions: [] as string[] };
+    (window as unknown as { motionSample: typeof sample }).motionSample = sample;
+    const frame = () => { sample.positions.push(document.querySelector('#map-preview [data-id="infrastructure"]')?.getAttribute('transform') ?? ''); if (sample.running) requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+  });
+  await mapNode(page, 'infrastructure');
+  const positions = await page.evaluate(() => { const sample = (window as unknown as { motionSample: { running: boolean; positions: string[] } }).motionSample; sample.running = false; return sample.positions; });
+  expect(new Set(positions.filter(Boolean)).size).toBeGreaterThan(3);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const resizedWidth = await page.locator('.preview-viewport').evaluate(el => Math.max(640, Math.floor(el.clientWidth)));
+  await expect(page.locator('#map-preview svg')).toHaveAttribute('viewBox', new RegExp(`^0 0 ${resizedWidth} `));
+  await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+  await expect(page.locator('#map-preview .node.current')).toHaveAttribute('data-id', 'infrastructure');
+  await mapNode(page, 'cicd'); await mapNode(page, 'hello');
+  const graph = await page.locator('#map-preview svg').boundingBox();
+  const panel = await page.locator('#map-preview .context-panel').boundingBox();
+  expect(panel!.y).toBeGreaterThanOrEqual(graph!.y + graph!.height - 1);
+  await page.screenshot({ path: info.outputPath('preview-inspector-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#map-preview svg')).toHaveAttribute('viewBox', /^0 0 640 /);
+  await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+  await expect(page.locator('#map-preview .context-panel')).toBeVisible();
+  const narrowPanel = await page.locator('#map-preview .context-panel').boundingBox();
+  expect(narrowPanel!.x).toBeGreaterThanOrEqual(0); expect(narrowPanel!.x + narrowPanel!.width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('preview-inspector-mobile.png'), fullPage: true });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 1440, height: 840 });
+  await view(page, 'articles'); await view(page, 'preview');
+  await mapNode(page, 'infrastructure');
+  await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+  await expect(page.locator('#map-preview .node.current')).toHaveAttribute('data-id', 'infrastructure');
 });
