@@ -1043,3 +1043,6 @@ footer {
 @media (max-width: 680px) {
   .publish-status { border-left: 0; padding-left: 0; }
 }
+
+#map-preview .node.empty-directory .dot { stroke-dasharray: 3 3; }
+#map-preview .node.empty-directory .inner-mark { opacity: .3; }

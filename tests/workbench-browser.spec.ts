@@ -338,3 +338,29 @@ test('article filters explain empty results and the editor explains heading hier
   await expect(page.locator('#body-heading-help')).toContainText('正文建议从 ## 二级标题开始');
   await expect(page.getByLabel('Markdown 正文')).toHaveAttribute('aria-describedby', 'body-heading-help');
 });
+
+test('empty directories lead to management instead of a nonexistent index', async ({ page }, info) => {
+  await login(page);
+  let writes = 0; page.on('request', request => { if (request.url().endsWith('/api/command')) writes++; });
+  await view(page, 'preview'); await page.getByRole('button', { name: '完整目录（含草稿）' }).click();
+  await mapNode(page, 'software');
+  await expect(page.locator('#map-preview [data-id="dotnet"]')).toHaveClass(/empty-directory/);
+  await expect(page.locator('#map-preview [data-id="dotnet"]')).toHaveAttribute('aria-label', /空目录/);
+  await mapNode(page, 'dotnet');
+  await expect(page.locator('#map-preview .context-panel')).toContainText('空目录');
+  await expect(page.locator('#map-preview .context-panel')).not.toContainText('打开完整索引');
+  await page.setViewportSize({ width: 1280, height: 840 });
+  const width = await page.locator('.preview-viewport').evaluate(el => Math.max(640, Math.floor(el.clientWidth)));
+  await expect(page.locator('#map-preview svg')).toHaveAttribute('viewBox', new RegExp(`^0 0 ${width} `));
+  await expect(page.locator('#map-preview .node.current')).toHaveAttribute('data-id', 'software');
+  await expect(page.getByRole('button', { name: '去管理目录添加内容', exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('empty-directory.png'), fullPage: true });
+  await page.getByRole('button', { name: '去管理目录添加内容', exact: true }).click();
+  await expect(page.locator('#directory-view')).toBeVisible();
+  await expect(page.locator('#tree [aria-current="true"]')).toHaveAttribute('data-node-id', 'dotnet');
+  await expect(page.locator('#directory-form').getByLabel('目录名称')).toBeFocused();
+  await page.locator('#add-directory-panel > summary').click();
+  await expect(page.locator('#directory-kind-help')).toBeVisible();
+  await expect(page.locator('#add-directory-form select[name="kind"]')).toHaveAttribute('aria-describedby', 'directory-kind-help');
+  expect(writes).toBe(0);
+});

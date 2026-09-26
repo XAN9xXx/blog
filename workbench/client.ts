@@ -1,4 +1,5 @@
 import { mountTopology, type TopologyInstance, type TopologyNode } from '@xan9x/topology';
+import type { TopologyDocument } from '@xan9x/topology/schema';
 import '@xan9x/topology/style.css';
 import './style.css';
 import type { Workspace, Command } from './model';
@@ -15,7 +16,7 @@ let authMode: 'password' | 'ssh' = 'password';
 let csrf = ''; let state: State; let selectedNode = ''; let selectedArticle: string | undefined;
 let creating = false; let pending = false; let view: View = 'articles';
 let map: TopologyInstance | undefined;
-let mapDocument: Parameters<typeof mountTopology>[1] | undefined;
+let mapDocument: TopologyDocument | undefined;
 let mapWidth = 0; let mapHeight = 0; let mapMode: 'editing' | 'public' = 'public';
 let articleSeed = ''; let autoArticleId = ''; let autoArticlePath = ''; let autoDirectoryId = ''; let directorySeed = '';
 const dirtyForms = new Set<string>();
@@ -310,6 +311,35 @@ $('remove-node').addEventListener('click', () => {
   void action(() => save({ type: 'removeNode', id: selectedNode, confirm: true }));
 });
 $('collapse-tree').addEventListener('click', () => { expandedNodes.clear(); expandedNodes.add(state.workspace.topology.document.root.id); renderTree(); });
+function annotateMapDirectories() {
+  if (!mapDocument || !map || map.getState().destroyed) return;
+  const directories = flat(mapDocument.root).filter(({ node }) => ['topic', 'index'].includes(node.type));
+  const emptyIds = new Set(directories.filter(({ node }) => !node.children?.length).map(({ node }) => node.id));
+  for (const element of $('map-preview').querySelectorAll<SVGGElement>('.node[data-id]')) {
+    const empty = emptyIds.has(element.dataset.id!); element.classList.toggle('empty-directory', empty);
+    if (empty) {
+      const node = directories.find(({ node }) => node.id === element.dataset.id)!.node;
+      element.setAttribute('aria-label', `${node.label}，空目录，可在管理目录中添加内容`);
+      const meta = element.querySelector('.meta'); if (meta) meta.textContent = '空目录';
+    }
+  }
+  const selected = directories.find(({ node }) => node.id === map!.getState().selectedId)?.node;
+  const panel = $('map-preview').querySelector<HTMLElement>('.context-panel');
+  if (!selected || !panel || panel.hidden) return;
+  const empty = emptyIds.has(selected.id);
+  if (empty) {
+    const type = panel.querySelector('.panel-type'); if (type) type.textContent = '空目录';
+    const description = panel.querySelector(':scope > p'); if (description) description.textContent = '这里还没有子目录或文章入口。可以前往管理目录添加内容。';
+  }
+  if (panel.querySelector('[data-workbench-directory]')?.getAttribute('data-workbench-directory') === selected.id) return;
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'panel-open';
+  button.dataset.workbenchDirectory = selected.id; button.textContent = empty ? '去管理目录添加内容' : '管理此目录';
+  button.addEventListener('click', () => {
+    if (pending || !discard()) return;
+    clearDirty(); selectedNode = selected.id; render(); setView('directory'); field('directory-form', 'label').focus();
+  });
+  const previous = panel.querySelector('.panel-open'); if (previous) previous.replaceWith(button); else panel.append(button);
+}
 function mapSize() {
   const viewport = $('map-preview').parentElement!;
   $('map-scroll-hint').hidden = viewport.clientWidth >= 640;
@@ -318,6 +348,7 @@ function mapSize() {
 function drawMap(preserveFocus = false) {
   if (!mapDocument || view !== 'preview') return;
   const previous = preserveFocus ? map?.getState() : undefined;
+  const selectedDirectory = previous?.selectedId && flat(mapDocument.root).find(({ node }) => node.id === previous.selectedId && ['topic', 'index'].includes(node.type))?.node;
   ({ width: mapWidth, height: mapHeight } = mapSize());
   $('map-preview').style.minWidth = mapWidth + 'px';
   $('map-preview').style.setProperty('--preview-canvas-height', mapHeight + 'px');
@@ -325,14 +356,30 @@ function drawMap(preserveFocus = false) {
   const logicalHeight = Math.max(mapHeight, Math.min(640, Math.max(460, mapWidth * .52)));
   $('map-preview').style.setProperty('--preview-visible-width', $('map-preview').parentElement!.clientWidth + 'px');
   map?.destroy(); map = mountTopology($('map-preview'), mapDocument, { width: mapWidth, height: logicalHeight,
-    initialFocusId: previous?.selectedId ?? previous?.focusId,
+    initialFocusId: selectedDirectory ? previous?.focusId : previous?.selectedId ?? previous?.focusId,
     onNavigate(_href, node, event) { event.preventDefault(); if (!discard()) return; clearDirty(); selectedNode = node.id; creating = false; selectedArticle = state.workspace.topology.articleRefs[node.id]; render(); setView('articles'); field('article-form', 'title').focus(); }
   });
+  map.subscribe(annotateMapDirectories); annotateMapDirectories();
+  if (selectedDirectory && previous) {
+    // The pinned module's focus(id) enters directories, even empty ones. Restore
+    // their selection through the rendered node after the parent layout settles.
+    const instance = map; let unsubscribe = () => {};
+    const restoreSelection = () => {
+      const current = instance.getState();
+      if (current.destroyed) { unsubscribe(); return; }
+      if (current.animating) return;
+      unsubscribe();
+      if (current.focusId !== previous.focusId || current.selectedId) return;
+      const node = Array.from($('map-preview').querySelectorAll<SVGGElement>('.node[data-id]')).find(element => element.dataset.id === selectedDirectory.id);
+      node?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    };
+    unsubscribe = instance.subscribe(restoreSelection); restoreSelection();
+  }
   const viewport = $('map-preview').parentElement!;
   viewport.scrollLeft = Math.max(0, (mapWidth - viewport.clientWidth) / 2);
 }
 async function showMap(mode: 'editing' | 'public') {
-  const result = await api<{ document: Parameters<typeof mountTopology>[1] }>('/api/preview', { revision: state.revision, mode });
+  const result = await api<{ document: TopologyDocument }>('/api/preview', { revision: state.revision, mode });
   mapMode = mode; mapDocument = result.document; drawMap();
   $('preview-editing').setAttribute('aria-pressed', String(mode === 'editing')); $('preview-public').setAttribute('aria-pressed', String(mode === 'public'));
   $('preview-caption').textContent = `${mode === 'editing' ? '完整目录 · 含草稿和空分类' : '模拟公开地图 · 隐藏草稿和空分类'} · 使用已保存版本 ${state.revision.slice(0, 10)}`;

@@ -241,11 +241,12 @@
               <form id="add-directory-form">
                 <label>名称<input name="label" required maxlength="240" placeholder="例如：开发笔记" /></label
                 ><label
-                  >类型<select name="kind">
+                  >类型<select name="kind" aria-describedby="directory-kind-help">
                     <option value="topic">主题目录</option>
                     <option value="index">索引目录</option>
                   </select></label
                 >
+                <p id="directory-kind-help" class="field-help">主题目录用于领域分组，索引目录用于条目汇集；两者都可嵌套，并非由层级自动决定。不确定时保留“主题目录”即可。</p>
                 <details class="advanced">
                   <summary>高级：节点标识（自动生成）</summary>
                   <label
