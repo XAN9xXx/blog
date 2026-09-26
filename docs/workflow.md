@@ -194,7 +194,7 @@ export WORKBENCH_ORIGIN=http://127.0.0.1:4325
 npm run workbench:start
 ~~~
 
-通过 `http://127.0.0.1:4325` 访问。必须使用与 WORKBENCH_ORIGIN 完全一致的地址，不能混用 localhost 和 127.0.0.1。缺少有效密码哈希会拒绝启动。进程固定监听回环地址，不会直接暴露到公网。
+通过 `http://127.0.0.1:4325` 访问。必须使用与 WORKBENCH_ORIGIN 完全一致的地址，不能混用 localhost 和 127.0.0.1。默认 password 模式缺少有效密码哈希会拒绝启动。进程固定监听回环地址，不会直接暴露到公网。
 
 变量：
 
@@ -202,7 +202,8 @@ npm run workbench:start
 | --- | --- |
 | WORKBENCH_ORIGIN | 浏览器实际使用的来源地址；SSH 转发用 http://127.0.0.1:4325，直接使用远程域名则必须 HTTPS；不能包含路径 |
 | WORKBENCH_PORT | 4325，1024–65535；服务仅监听 127.0.0.1 |
-| WORKBENCH_PASSWORD_HASH | 必填，使用上述命令生成；不接受明文或默认密码 |
+| WORKBENCH_AUTH_MODE | 默认 password；显式设为 ssh 时允许个人 SSH 隧道免密访问 |
+| WORKBENCH_PASSWORD_HASH | password 模式必填；ssh 模式忽略此值，可保留已有哈希用于恢复 |
 | WORKBENCH_CONTENT_DIR | 相邻内容仓库；只读导入文章和 topology.json，不读取 Git 凭据 |
 | WORKBENCH_STATE_DIR | 引擎内 .workbench；VPS 建议 /var/lib/xan9x-workbench |
 
@@ -279,7 +280,17 @@ ssh -N -T -a -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliv
 
 这时浏览器使用 `http://127.0.0.1:14325`，**VPS 上的 WORKBENCH_ORIGIN 也必须改成这个地址并重启工作台**，但 WORKBENCH_PORT 仍为 4325。SSH 转发不会替你改写 HTTP Host/Origin；若仍配置旧来源，登录或保存会被 403 拒绝。不要把 WORKBENCH_ORIGIN 填成 VPS 公网 IP，也不要混用 localhost 和 127.0.0.1。变更来源后需重新登录。
 
-### 部署后的首次密码设置与启动
+### 个人 SSH 隧道免密模式
+
+在 `/etc/xan9x-workbench.env` 中显式设置 `WORKBENCH_AUTH_MODE=ssh` 并重启服务后，浏览器通过隧道直接进入，不再输入工作台密码。默认仍为 `password`，未知配置值拒绝启动；免密模式只允许 `http://127.0.0.1:端口` 来源，服务固定监听 `127.0.0.1` 并拒绝其他地址上的连接。不要为它配置公网反向代理或开放监听。
+
+免密依赖部署环境的 SSH 访问边界，不代表 HTTP 服务能识别 SSH 用户。VPS 上能访问回环端口的其他本地进程，以及本机转发端口的使用者，同样能够进入；多用户或不可信环境应恢复密码模式。无需删除已有密码哈希，改回 `WORKBENCH_AUTH_MODE=password` 并重启即可恢复原密码。
+
+浏览器仍自动获取 HttpOnly / SameSite=Strict 会话和随机 CSRF token；Host、Origin、Fetch Metadata 与写请求 CSRF 校验继续生效，未建立会话不能读取工作区或导出。只有明确收到 401 时，前端才自动重建 SSH 会话并重试一次；网络失败、403 和版本冲突不自动重试。结束当前会话会撤销 cookie，页面停留在结束状态；由于入口本来免密，重新进入不需要密码。要停止本机访问，需要关闭 SSH 隧道。
+
+SSH 免密模式使用现有安全校验叠加会话，而不是把写接口改成无校验接口。CSRF 防护依据：[OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)。
+
+### 部署后的首次密码设置与启动（password 模式）
 
 安装代码、内容快照、Node、服务用户及 systemd 单元后，先保持服务停用，不配置默认生产密码。由用户在自己的交互 SSH 终端中执行：
 
@@ -298,16 +309,16 @@ systemctl status xan9x-workbench --no-pager
 - SSH 别名/连接信息、发行版、Node 24 可用路径，以及是否可以安装低权限 systemd 服务；先只读检查，再确认实际部署变更。
 - 模板使用 /opt/xan9x-blog 中的代码，以及独立安装到 /opt/node24 的 Node 24；不修改系统 Node 或全局 alternatives。SSH 登录用户与工作台服务用户可以不同，服务不要以 root 运行。
 - 阿里云需要独立的内容工作副本；雨云的 `/srv/git/*.git` 是裸仓库，不能直接作为 WORKBENCH_CONTENT_DIR。代码/内容传输或仓库读取凭据另行确认，不给工作台进程 Git 发布权限。
-- 专用服务用户只读代码和内容源，只写私有状态目录。生产密码由用户在 VPS 本地设置，不发送到聊天；环境文件留在仓库外并限制权限。
+- 专用服务用户只读代码和内容源，只写私有状态目录。使用密码模式时，生产密码由用户在 VPS 本地设置，不发送到聊天；环境文件留在仓库外并限制权限。
 - HTTP 回环来源的会话保留 HttpOnly / SameSite=Strict；不设置仅用于 HTTPS 的 Secure 标记。来源与 CSRF 校验继续生效，不能为适配隧道而禁用。
 - 如果 SSH 报 `administratively prohibited`，应由管理员检查有效的 AllowTcpForwarding、DisableForwarding、PermitOpen 和 authorized_keys 限制；不直接改全局 SSH 策略。若要为专用账号收窄目的地，可评估只允许 127.0.0.1:4325，但须先确认不影响已有连接用途。
 
 上线验收顺序：
 
 1. VPS 上确认服务只监听 127.0.0.1:4325，而不是 0.0.0.0 或公网地址；本机也只监听 127.0.0.1 的转发端口。
-2. 通过隧道登录，保存一篇测试草稿、绑定目录，检查完整/公开两种预览。
-3. 验证未登录不能读取工作区/导出、旧页面保存冲突不会覆盖新版本、退出后会话失效。
-4. 重启工作台后重新登录，确认私有保存仍在；关闭 SSH 后本机访问中断，重新建隧道后恢复。
+2. 通过隧道进入工作台（密码模式需登录，SSH 模式自动建立会话），保存一篇测试草稿、绑定目录，检查完整/公开两种预览。
+3. 验证未建立会话不能读取工作区/导出、旧页面保存冲突不会覆盖新版本、结束会话后旧 cookie 失效；SSH 模式允许重新建立会话。
+4. 重启工作台后重新进入，确认私有保存仍在；关闭 SSH 后本机访问中断，重新建隧道后恢复。
 5. 确认真实内容仓库和公开站点没有因保存发生变更，再单独设计发布候选、差异确认与显式推送流程。当前不存在可调用的发布接口。
 
 将来需要从多设备直接通过域名访问时，再配置 HTTPS 反向代理及相应 WORKBENCH_ORIGIN，不在当前隧道方案中暴露公网 HTTP。

@@ -11,7 +11,7 @@
     <a class="skip" href="#main">跳到编辑区</a>
     <header class="app-header">
       <div class="brand">
-        <strong>XAN9x</strong><span>工作台</span><span class="private-label">私有</span>
+        <strong>XAN9x</strong><span>工作台</span><span id="access-mode" class="private-label">私有</span>
       </div>
       <div id="account" hidden>
         <details class="account-menu">
@@ -25,7 +25,9 @@
       </div>
     </header>
     <div id="message" class="feedback" role="status" aria-live="polite" hidden></div>
-    <section id="login">
+    <p id="connecting" role="status" class="connection-state">正在连接工作台…</p>
+    <section id="session-closed" class="connection-state" hidden><h1>当前会话已结束</h1><p>SSH 隧道连接期间可以重新进入。若要停止本机访问，请关闭 SSH 隧道。</p><button id="reconnect-session" type="button" class="primary">重新进入工作台</button></section>
+    <section id="login" hidden>
       <p class="eyebrow">个人博客</p>
       <h1>登录工作台</h1>
       <p class="muted">写文章，整理目录，预览地图。<br />这里的修改不会自动发布到博客。</p>

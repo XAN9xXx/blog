@@ -1,15 +1,15 @@
 import path from 'node:path';
 import { WorkspaceStore } from './store';
-import { createWorkbenchServer, originConfig } from './http';
+import { createWorkbenchServer, originConfig, authModeConfig } from './http';
 const blog = path.resolve(import.meta.dirname, '..');
 const origin = process.env.WORKBENCH_ORIGIN ?? 'http://127.0.0.1:4325';
-originConfig(origin);
+const authMode = authModeConfig(process.env.WORKBENCH_AUTH_MODE, originConfig(origin));
 const port = Number(process.env.WORKBENCH_PORT ?? 4325);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('WORKBENCH_PORT 必须是 1024–65535。');
 const passwordHash = process.env.WORKBENCH_PASSWORD_HASH;
-if (!passwordHash) throw new Error('未配置 WORKBENCH_PASSWORD_HASH；拒绝启动未受保护的工作台。');
+if (authMode === 'password' && !passwordHash) throw new Error('未配置 WORKBENCH_PASSWORD_HASH；拒绝启动未受保护的工作台。');
 const store = new WorkspaceStore(process.env.WORKBENCH_CONTENT_DIR ?? path.resolve(blog, '../xan9x-blog-content'),
   process.env.WORKBENCH_STATE_DIR ?? path.join(blog, '.workbench'));
-const server = createWorkbenchServer({ store, origin, passwordHash, assets: path.join(blog, 'workbench/dist') });
-server.listen(port, '127.0.0.1', () => console.log(`Private workbench: ${origin} (loopback only; no publishing configured)`));
+const server = createWorkbenchServer({ store, origin, passwordHash, authMode, assets: path.join(blog, 'workbench/dist') });
+server.listen(port, '127.0.0.1', () => console.log(`Private workbench: ${origin} (loopback only; auth=${authMode}; no publishing configured)`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => server.close(() => process.exit(0)));

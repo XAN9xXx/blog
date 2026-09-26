@@ -11,6 +11,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const form = (id: string) => $<HTMLFormElement>(id);
 const field = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLInputElement;
 const select = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLSelectElement;
+let authMode: 'password' | 'ssh' = 'password';
 let csrf = ''; let state: State; let selectedNode = ''; let selectedArticle: string | undefined;
 let creating = false; let pending = false; let view: View = 'articles';
 let map: TopologyInstance | undefined;
@@ -33,9 +34,14 @@ function message(text: string, error = false) {
   if (!error && text) messageTimer = setTimeout(() => { $('message').hidden = true; }, 6000);
 }
 class ApiError extends Error { constructor(message: string, readonly status: number) { super(message); } }
-async function api<T>(url: string, value?: unknown): Promise<T> {
+async function api<T>(url: string, value?: unknown, renewSession = true): Promise<T> {
   const response = await fetch(url, { method: value === undefined ? 'GET' : 'POST', credentials: 'same-origin',
     headers: value === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: value === undefined ? undefined : JSON.stringify(value) }).catch(() => { throw new Error('无法连接工作台。请检查 SSH 隧道或网络，然后重试；当前输入仍然保留。'); });
+  // Only a definite 401 is safe to retry: no command was accepted. Never retry an uncertain network failure.
+  if (response.status === 401 && authMode === 'ssh' && renewSession && url !== '/api/session') {
+    const session = await api<{ csrf: string }>('/api/session', undefined, false); csrf = session.csrf;
+    return api<T>(url, value, false);
+  }
   const result = await response.json();
   if (!response.ok) throw new ApiError(result.error ?? '请求失败。', response.status); return result;
 }
@@ -181,7 +187,9 @@ function renderTree() {
   const list = document.createElement('ul'); list.append(tree(state.workspace.topology.document.root)); $('tree').replaceChildren(list);
 }
 function render() {
-  $('login').hidden = true; $('main').hidden = false; $('account').hidden = false;
+  $('connecting').hidden = true; $('session-closed').hidden = true; $('login').hidden = true; $('main').hidden = false; $('account').hidden = false;
+  $('access-mode').textContent = authMode === 'ssh' ? 'SSH 免密' : '私有';
+  $('logout').textContent = authMode === 'ssh' ? '结束当前会话' : '退出';
   $('revision').textContent = '私有版本 ' + state.revision.slice(0, 10);
   $('source-warning').hidden = !state.sourceChanged;
   if (!selectedArticle && !creating) selectedArticle = state.articles[0]?.id;
@@ -216,7 +224,7 @@ form('login-form').addEventListener('submit', event => { event.preventDefault();
   void action(async () => { const session = await api<{ csrf: string }>('/api/login', { password }); csrf = session.csrf;
     field('login-form', 'password').value = ''; state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; expandedNodes.add(selectedNode); render(); message(''); });
 });
-$('logout').addEventListener('click', () => { if (!discard()) return; void action(async () => { await api('/api/logout', {}); clearDirty(); location.reload(); }); });
+$('logout').addEventListener('click', () => { if (!discard()) return; void action(async () => { await api('/api/logout', {}); clearDirty(); if (authMode === 'ssh') location.assign('/?session=closed'); else location.reload(); }); });
 $('reload').addEventListener('click', () => { if (!discard()) return; void action(async () => { state = await api<State>('/api/workspace'); clearDirty(); creating = false; map?.destroy(); map = undefined; mapDocument = undefined; render(); $<HTMLDetailsElement>('account').querySelector('details')!.open = false; if (view === 'preview') await showMap(mapMode); message('已重新加载。'); }); });
 for (const next of ['articles', 'directory', 'preview'] as const) $('view-' + next).addEventListener('click', () => {
   if (next === view || pending || !discard()) return;
@@ -283,8 +291,16 @@ async function showMap(mode: 'editing' | 'public') {
 $('preview-editing').addEventListener('click', () => void action(() => showMap('editing')));
 $('preview-public').addEventListener('click', () => void action(() => showMap('public')));
 new ResizeObserver(() => { if (view === 'preview' && mapDocument && Math.max(640, Math.floor($('map-preview').parentElement!.clientWidth)) !== mapWidth) drawMap(); }).observe($('map-preview').parentElement!);
-void action(async () => {
-  try { const session = await api<{ csrf: string }>('/api/session'); csrf = session.csrf; }
-  catch (error) { if (!(error instanceof ApiError && error.status === 401)) throw error; return; }
-  state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; expandedNodes.add(selectedNode); render();
-});
+$('reconnect-session').addEventListener('click', () => location.replace('/'));
+async function connect() {
+  try {
+    const session = await api<{ csrf: string; authMode: 'password' | 'ssh' }>('/api/session'); csrf = session.csrf; authMode = session.authMode;
+    state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; expandedNodes.add(selectedNode); render();
+  } catch (error) {
+    $('connecting').hidden = true; $('login').hidden = false;
+    if (!(error instanceof ApiError && error.status === 401)) throw error;
+  }
+}
+if (new URLSearchParams(location.search).get('session') === 'closed') {
+  $('connecting').hidden = true; $('session-closed').hidden = false;
+} else void action(connect);

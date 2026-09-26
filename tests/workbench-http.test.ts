@@ -5,21 +5,21 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { WorkspaceStore } from '../workbench/store';
-import { Auth, passwordHash } from '../workbench/auth';
-import { createWorkbenchServer, originConfig } from '../workbench/http';
+import { Auth, Sessions, passwordHash } from '../workbench/auth';
+import { createWorkbenchServer, originConfig, authModeConfig } from '../workbench/http';
 import { renderMarkdown } from '../workbench/markdown';
 const password = 'test-only-workbench-password';
 const hash = passwordHash(password);
-async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example') {
+async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example', authMode: 'password' | 'ssh' = 'password', bind = '127.0.0.1') {
   const root = mkdtempSync(path.join(tmpdir(), 'workbench-http-'));
   const content = path.join(root, 'content'); cpSync(path.resolve(import.meta.dirname, '../../xan9x-blog-content'), content, { recursive: true });
   writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>Login only</title>');
   const store = new WorkspaceStore(content, path.join(root, 'private'));
-  const server = createWorkbenchServer({ store, origin, passwordHash: await hash, assets: root });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const server = createWorkbenchServer({ store, origin, authMode, passwordHash: authMode === 'password' ? await hash : undefined, assets: root });
+  await new Promise<void>(resolve => server.listen(0, bind, resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); });
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No port');
-  const base = `http://127.0.0.1:${address.port}`;
+  const base = `http://${bind}:${address.port}`;
   let cookie = ''; let csrf = '';
   const request = (route: string, value?: unknown, headers: Record<string, string> = {}) => new Promise<Response>((resolve, reject) => {
     const payload = value === undefined ? undefined : JSON.stringify(value);
@@ -31,7 +31,7 @@ async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://
         resolve(new Response(Buffer.concat(chunks), { status: response.statusCode, headers: result })); });
     }); req.on('error', reject); req.end(payload);
   });
-  const login = async () => { const response = await request('/api/login', { password }); assert.equal(response.status, 200);
+  const login = async () => { const response = authMode === 'ssh' ? await request('/api/session') : await request('/api/login', { password }); assert.equal(response.status, 200);
     cookie = response.headers.get('set-cookie')!.split(';')[0]!; csrf = (await response.json()).csrf; return response; };
   return { request, login, store };
 }
@@ -111,4 +111,56 @@ test('loopback browser origin supports a distinct forwarded port without bypassi
   assert.equal((await f.request('/api/command', { revision: state.revision, command })).status, 200);
   assert.equal((await f.request('/api/logout', {})).status, 200);
   assert.equal((await f.request('/api/workspace')).status, 401);
+});
+
+test('SSH mode must be explicitly selected and refuses public or ambiguous origins', () => {
+  assert.equal(authModeConfig(undefined, originConfig('https://editor.example')), 'password');
+  assert.equal(authModeConfig('ssh', originConfig('http://127.0.0.1:14325')), 'ssh');
+  for (const origin of ['https://editor.example', 'https://127.0.0.1:4325', 'http://localhost:4325', 'http://[::1]:4325']) {
+    assert.throws(() => authModeConfig('ssh', originConfig(origin)), /SSH/);
+  }
+  for (const value of ['none', '', 'SSH', 'false']) assert.throws(() => authModeConfig(value, originConfig('http://127.0.0.1:4325')), /AUTH_MODE/);
+  assert.throws(() => createWorkbenchServer({ store: {} as WorkspaceStore, origin: 'http://127.0.0.1:4325', assets: '/tmp' }), /PASSWORD_HASH/);
+});
+test('SSH auto-session keeps cookies, CSRF, origin checks, revisions and logout protections', async t => {
+  const f = await fixture(t, 'http://127.0.0.1:14325', 'ssh');
+  assert.equal((await f.request('/api/workspace')).status, 401);
+  assert.equal((await f.request('/api/export')).status, 401);
+  assert.equal((await f.request('/api/login', { password })).status, 404);
+  for (const headers of [{ Origin: 'https://evil.example' }, { Host: 'evil.example' }, { 'Sec-Fetch-Site': 'cross-site' }, { 'Sec-Fetch-Site': 'same-site' }] as Record<string, string>[]) {
+    assert.equal((await f.request('/api/session', undefined, headers)).status, 403);
+  }
+  const response = await f.login(); assert.match(response.headers.get('set-cookie')!, /HttpOnly; SameSite=Strict/);
+  assert.doesNotMatch(response.headers.get('set-cookie')!, /; Secure/);
+  const sessionResponse = await f.request('/api/session'); const session = await sessionResponse.json();
+  assert.equal(session.authMode, 'ssh'); assert.match(session.csrf, /^[a-f0-9]{64}$/);
+  assert.equal(sessionResponse.headers.get('set-cookie'), null, 'valid sessions must not be replaced on every request');
+  const before = await (await f.request('/api/workspace')).json();
+  const command = { type: 'addDirectory', id: 'ssh-mode-test', parentId: 'root', kind: 'topic', label: 'SSH test' };
+  for (const headers of [{ 'X-CSRF-Token': '' }, { Origin: 'https://evil.example' }, { 'Sec-Fetch-Site': 'cross-site' }] as Record<string, string>[]) {
+    assert.equal((await f.request('/api/command', { revision: before.revision, command }, headers)).status, 403);
+  }
+  assert.equal(f.store.get().revision, before.revision);
+  assert.equal((await f.request('/api/command', { revision: before.revision, command })).status, 200);
+  assert.equal((await f.request('/api/command', { revision: before.revision, command })).status, 409);
+  assert.equal((await f.request('/api/publish', {})).status, 404);
+  assert.equal((await f.request('/api/logout', {})).status, 200);
+  assert.equal((await f.request('/api/workspace')).status, 401);
+  await f.login(); const renewed = await (await f.request('/api/session')).json();
+  assert.notEqual(renewed.csrf, session.csrf);
+});
+test('SSH mode rejects connections arriving on another local address even with an allowed Host', async t => {
+  const f = await fixture(t, 'http://127.0.0.1:4325', 'ssh', '127.0.0.2');
+  assert.equal((await f.request('/api/session')).status, 403);
+  assert.equal((await f.request('/')).status, 403);
+});
+test('automatic sessions retain expiry, revocation and a bounded session count', () => {
+  let now = 0; const sessions = new Sessions(() => now);
+  const first = sessions.createSession();
+  for (let i = 0; i < 16; i++) sessions.createSession();
+  assert.throws(() => sessions.session('workbench_session=' + first.id));
+  const last = sessions.createSession(); now = 61 * 60_000;
+  assert.throws(() => sessions.session('workbench_session=' + last.id));
+  const active = sessions.createSession(); sessions.logout(active.id);
+  assert.throws(() => sessions.session('workbench_session=' + active.id));
 });

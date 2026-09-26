@@ -1,7 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
+const sshMode = process.env.WORKBENCH_TEST_AUTH_MODE === 'ssh';
 async function login(page: Page) {
-  await page.goto('/'); await page.getByLabel('密码', { exact: true }).fill('test-only-workbench-password');
-  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await page.goto('/');
+  if (!sshMode) { await page.getByLabel('密码', { exact: true }).fill('test-only-workbench-password');
+  await page.getByRole('button', { name: '登录', exact: true }).click(); }
   await expect(page.getByRole('heading', { name: '内容工作区' })).toBeVisible();
   await expect(page.locator('#article-form').getByLabel('标题', { exact: true })).not.toHaveValue('');
 }
@@ -160,10 +162,11 @@ test('responsive task views, map return and logout keep private data protected',
   await page.locator('#map-preview').getByRole('link', { name: '打开内容 →' }).click();
   await expect(page.locator('#article-form').getByLabel('稳定 ID')).toHaveValue('hello');
   await page.locator('.account-menu > summary').click();
-  await page.getByRole('button', { name: '退出', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '登录工作台' })).toBeVisible();
+  await page.getByRole('button', { name: sshMode ? '结束当前会话' : '退出', exact: true }).click();
+  await expect(page.getByRole('heading', { name: sshMode ? '当前会话已结束' : '登录工作台' })).toBeVisible();
   expect((await page.request.get('/api/workspace')).status()).toBe(401);
   expect((await page.request.get('/api/export')).status()).toBe(401);
+  if (sshMode) { await page.getByRole('button', { name: '重新进入工作台', exact: true }).click(); await expect(page.getByRole('heading', { name: '内容工作区' })).toBeVisible(); }
 });
 
 test('connection failures, discarded switches and cross-form cancellation do not silently lose input', async ({ page }) => {
@@ -190,4 +193,18 @@ test('connection failures, discarded switches and cross-form cancellation do not
   await expect(page.locator('#add-directory-form').getByLabel('名称', { exact: true })).toHaveValue('不应新增的子目录');
   await expect(page.locator('#tree')).not.toContainText('不应新增的子目录');
   await expect(page.locator('#save-status')).toContainText('未保存');
+});
+
+test('SSH mode renews an absent session once without discarding an unsaved article', async ({ page, context }) => {
+  test.skip(!sshMode, 'Automatic renewal is only enabled in explicitly configured SSH mode.');
+  await login(page); await expect(page.locator('#access-mode')).toHaveText('SSH 免密');
+  await expect(page.locator('#login')).toBeHidden();
+  const body = page.locator('#article-form').getByLabel('Markdown 正文');
+  await body.fill('会话失效后，仍然保留并保存当前输入');
+  await context.clearCookies();
+  let commands = 0; page.on('request', request => { if (request.url().endsWith('/api/command')) commands++; });
+  await body.press('Control+s'); await saved(page);
+  expect(commands).toBe(2); // A rejected 401, then exactly one authenticated retry.
+  await expect(body).toHaveValue(/会话失效后，仍然保留并保存当前输入/);
+  await expect(body).toBeFocused();
 });

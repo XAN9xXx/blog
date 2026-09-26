@@ -999,3 +999,5 @@ footer {
     display: none;
   }
 }
+
+.connection-state { max-width: 520px; margin: 90px auto; padding: 0 24px; line-height: 1.8; }
