@@ -5,6 +5,14 @@ on:
     branches:
       - main
 
+    # 仅改动 CI 配置的推送不该触发重新拼装。
+    # .github/ 不会被复制进 site，所以这类推送唯一的效果是让
+    # .site-build.json 的 commit 哈希跳一下 —— 产生一个内容为空的
+    # "assemble site" 提交，并白白触发一次 Cloudflare Pages 重新部署。
+    # 要验证本文件的改动，用下面的 workflow_dispatch 手动触发。
+    paths-ignore:
+      - ".github/**"
+
   workflow_dispatch:
 
 permissions:
