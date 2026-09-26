@@ -1,0 +1,82 @@
+---
+import Icon from './Icon.astro';
+import type { MusicTrack } from '../lib/music';
+interface Props { tracks: MusicTrack[] }
+const { tracks } = Astro.props;
+const first = tracks[0];
+---
+<section id="music" class="music" aria-labelledby="music-title" data-music-player data-tracks={JSON.stringify(tracks)}>
+  <h2 id="music-title">音乐</h2>
+  <div class="player">
+    <div class="now-playing" aria-live="polite" aria-atomic="true">
+      <p class="track-title" data-track-title>{first?.title ?? '还没有添加音乐'}</p>
+      <p class="artist" data-track-artist hidden={!first?.artist}>{first?.artist}</p>
+    </div>
+    <audio preload="none" aria-label="音乐音频"></audio>
+    <div class="transport">
+      <button type="button" data-previous aria-label="上一首" disabled><Icon name="previous" /></button>
+      <button type="button" data-play aria-label="播放" disabled>
+        <span data-play-icon><Icon name="play" size={30} /></span>
+        <span data-pause-icon hidden><Icon name="pause" size={30} /></span>
+      </button>
+      <button type="button" data-next aria-label="下一首" disabled><Icon name="next" /></button>
+    </div>
+    <div class="timeline">
+      <span class="time" data-elapsed>0:00</span>
+      <input data-seek type="range" min="0" max="0" value="0" step="0.1" aria-label="播放进度" disabled />
+      <span class="time" data-duration>0:00</span>
+      <div class="volume">
+        <button type="button" data-mute aria-label="静音" aria-pressed="false" disabled>
+          <span data-volume-icon><Icon name="volume" /></span>
+          <span data-muted-icon hidden><Icon name="muted" /></span>
+        </button>
+        <input data-volume type="range" min="0" max="1" value="0.8" step="0.05" aria-label="音量" disabled />
+      </div>
+    </div>
+    <p class="status" data-status role="status" hidden></p>
+    {tracks.length > 1 && <ol class="playlist" aria-label="歌单">
+      {tracks.map((track, index) => <li>
+        <button type="button" data-track-index={index} aria-current={index === 0 ? 'true' : undefined} disabled>
+          <span class="track-number">{String(index + 1).padStart(2, '0')}</span>
+          <span>{track.title}</span>{track.artist && <span class="artist">{track.artist}</span>}
+        </button>
+      </li>)}
+    </ol>}
+    <noscript>{first ? <audio controls preload="none" src={first.src} aria-label={first.title} /> : null}</noscript>
+  </div>
+</section>
+<script>import '../scripts/music-player';</script>
+<style>
+  .music { padding: 36px 0 28px; border-bottom: var(--hairline); scroll-margin-top: 24px; }
+  h2 { margin: 0; font-size: 32px; line-height: 1.4; font-weight: 600; }
+  .player { max-width: 980px; margin: 0 auto; }
+  .now-playing { min-height: 30px; text-align: center; overflow-wrap: anywhere; }
+  .track-title { margin: 0; font-size: 16px; }
+  .artist { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+  .transport { display: flex; justify-content: center; align-items: center; gap: 42px; margin: 12px 0; }
+  button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: none; padding: 8px; line-height: 1; min-width: 44px; min-height: 44px; cursor: pointer; }
+  button > span:not([hidden]) { display: inline-flex; }
+  button:hover:not(:disabled) { color: var(--accent); }
+  button:disabled { color: var(--quiet); cursor: default; }
+  .timeline { display: flex; align-items: center; gap: 14px; }
+  .time { min-width: 38px; color: var(--muted); font-size: 14px; font-family: var(--sans); }
+  .time[data-duration] { text-align: right; }
+  input { accent-color: var(--accent); cursor: pointer; min-width: 0; height: 24px; margin: 0; }
+  input:disabled { cursor: default; opacity: .45; }
+  [data-seek] { flex: 1; }
+  .volume { display: flex; align-items: center; gap: 4px; }
+  [data-volume] { width: 80px; }
+  .status { text-align: center; font-size: 14px; color: var(--muted); margin: 12px 0 0; }
+  .playlist { list-style: none; margin: 28px 0 0; padding: 0; border-top: var(--hairline); }
+  .playlist button { width: 100%; text-align: left; justify-content: flex-start; gap: 16px; padding: 12px 0; overflow-wrap: anywhere; }
+  .playlist button[aria-current] { color: var(--accent); }
+  .playlist .artist { margin-left: auto; }
+  .track-number { color: var(--muted); font: 12px var(--mono); }
+  @media (max-width: 600px) {
+    .music { padding: 28px 0; }
+    h2 { font-size: 24px; margin-bottom: 20px; }
+    .timeline { gap: 8px; flex-wrap: wrap; }
+    .volume { flex-basis: 100%; justify-content: flex-end; }
+    .transport { gap: 28px; }
+  }
+</style>
