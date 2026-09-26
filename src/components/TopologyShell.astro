@@ -7,6 +7,7 @@ const { document } = Astro.props;
 ---
 <section class="map-hero" id="map" aria-labelledby="map-title">
   <h1 id="map-title">技术地图</h1>
+  {!document.root.children?.length && <p class="map-empty">暂无公开文章</p>}
   <nav class="map-controls" aria-label="地图操作">
     <button type="button" data-map-back disabled>上一层</button>
     <button type="button" data-map-home>全部主题</button>
@@ -37,6 +38,7 @@ const { document } = Astro.props;
   .map-hero :global(.node .meta) { font-size: 12px; }
   .map-hero :global(.link.relation) { opacity: .32; }
   .map-hero :global(.breadcrumb) { max-width: calc(100% - 32px); flex-wrap: wrap; }
+  .map-empty { color: var(--muted); margin: 16px 0 0; }
   .map-controls { display: none; }
   @media (max-width: 900px) {
     .map-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; }

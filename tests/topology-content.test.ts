@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { articleHref, compilePublicTopology, publicAuthoringSource } from '../src/lib/topology-content';
+import { articleHref, compilePublicTopology, publicAuthoringSource, publicDirectoryDocument } from '../src/lib/topology-content';
 
 function fixture() {
   const article = { id: 'hello', data: { id: 'hello', title: 'Real title', description: 'Real description', pubDate: new Date('2026-09-21'), draft: false, topics: ['software'] } };
@@ -56,4 +56,55 @@ test('article text remains data and cannot choose its own navigation URL', () =>
   const result = compilePublicTopology(source, [article]);
   const node = result.document.root.children![0]!.children![0]!;
   assert.equal(node.label, article.data.title); assert.equal(node.href, '/notes/hello/');
+});
+
+test('public directory recursively removes empty branches without changing authoring data', () => {
+  const { source, article } = fixture();
+  source.document.root.children.push({ id: 'empty-topic', type: 'topic', label: 'Empty topic', children: [] });
+  source.document.root.children[1]!.children.push({ id: 'empty-index', type: 'index', label: 'Empty index' });
+  source.document.relations.push(['software', 'empty-index']);
+  const before = structuredClone(source);
+  const compiled = compilePublicTopology(source, [article]);
+  const compiledBefore = structuredClone(compiled);
+  const visible = publicDirectoryDocument(compiled.document);
+  assert.deepEqual(visible.root.children!.map(node => node.id), ['software']);
+  assert.equal(visible.root.children![0]!.children![0]!.href, '/notes/hello/');
+  assert.deepEqual(visible.relations, [['software', 'hello-node']]);
+  assert.deepEqual(source, before); assert.deepEqual(compiled, compiledBefore);
+});
+
+test('draft-only branches disappear publicly; an empty directory retains a valid root', () => {
+  const { source, article } = fixture(); article.data.draft = true;
+  const compiled = compilePublicTopology(source, [article]);
+  assert.equal(compiled.document.root.children!.length, 1);
+  const visible = publicDirectoryDocument(compiled.document);
+  assert.equal(visible.root.id, 'root'); assert.deepEqual(visible.root.children, []);
+  assert.deepEqual(visible.relations, []);
+});
+
+test('hidden directory taxonomy still validates published article topics in assembled content', () => {
+  const { source, article } = fixture();
+  source.document.root.children.push({ id: 'empty-topic', type: 'topic', label: 'Empty topic', children: [] });
+  article.data.topics.push('empty-topic');
+  const compiled = compilePublicTopology(source, [article]);
+  const visible = publicDirectoryDocument(compiled.document);
+  assert.ok(!visible.root.children!.some(node => node.id === 'empty-topic'));
+  const assembled = publicAuthoringSource(compiled);
+  assert.ok(assembled.document.root.children!.some(node => node.id === 'empty-topic'));
+  assert.deepEqual(compilePublicTopology(assembled, [article]), compiled);
+});
+
+test('one article can keep two directory entries and stable routes after its title changes', () => {
+  const { source, article } = fixture();
+  source.document.root.children.push({ id: 'second-topic', type: 'topic', label: 'Second topic', children: [
+    { id: 'second-entry', type: 'article', label: 'Stale duplicate title' },
+  ] });
+  Object.assign(source.articleRefs, { 'second-entry': article.id });
+  article.data.title = 'Renamed article';
+  const visible = publicDirectoryDocument(compilePublicTopology(source, [article]).document);
+  assert.equal(visible.root.children!.length, 2);
+  for (const branch of visible.root.children!) {
+    assert.equal(branch.children![0]!.label, 'Renamed article');
+    assert.equal(branch.children![0]!.href, '/notes/hello/');
+  }
 });

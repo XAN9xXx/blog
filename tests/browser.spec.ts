@@ -6,12 +6,19 @@ test('published map opens real article; theme and deep links survive host integr
   await page.goto('/');
   const map = page.locator('#map');
   await expect(map.locator('.xan9x-topology')).toHaveCount(1);
-  await expect(map.locator('g.node')).toHaveCount(6);
-  await expect(map.locator('path.relation')).not.toHaveCount(0);
+  const directory = JSON.parse((await map.locator('[data-topology-document]').getAttribute('data-topology-document'))!);
+  function assertDirectory(node: { type: string; href?: string; children?: typeof node[] }) {
+    if (node.type === 'article') expect(node.href).toMatch(/^\/notes\/[^/]+\/$/);
+    else if (node.type !== 'root') expect(node.children?.length).toBeGreaterThan(0);
+    node.children?.forEach(assertDirectory);
+  }
+  assertDirectory(directory.root);
+  await expect(map.locator('g.node')).toHaveCount(directory.root.children.length + 1);
   await page.screenshot({ path: info.outputPath('blog-root.png'), animations: 'disabled' });
   await map.locator('[data-id="infrastructure"]').click();
   await map.locator('[data-id="cicd"]').click();
   await map.locator('[data-id="hello"]').click();
+  await expect(page).not.toHaveURL(/\/notes\/hello\/$/);
   await expect(map.locator('.context-panel')).toContainText('Hello from Blog-Content');
   await expect(map.getByRole('link', { name: '打开内容 →' })).toHaveAttribute('href', '/notes/hello/');
   await page.screenshot({ path: info.outputPath('blog-article-panel.png'), animations: 'disabled' });

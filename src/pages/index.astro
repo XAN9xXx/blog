@@ -1,5 +1,6 @@
 ---
 import { loadContentCatalog } from '../lib/content-files';
+import { publicDirectoryDocument } from '../lib/topology-content';
 import { loadMusicCatalog } from '../lib/music';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import SiteHeader from '../components/SiteHeader.astro';
@@ -12,7 +13,7 @@ const { tracks } = loadMusicCatalog();
 <BaseLayout title="XAN9x — 技术地图与音乐" description="软件、Linux、基础设施、开源与编译器，以及一些音乐。">
   <SiteHeader />
   <main class="wrap" id="main">
-    <TopologyShell document={topology.document} />
+    <TopologyShell document={publicDirectoryDocument(topology.document)} />
     <MusicPlayer tracks={tracks} />
   </main>
   <SiteFooter />

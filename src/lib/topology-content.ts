@@ -86,3 +86,21 @@ export function publicAuthoringSource(compiled: TopologySource): TopologySource 
   strip(source.document.root);
   return source;
 }
+
+/** Reader-only projection. Keep the complete directory taxonomy for authoring and topic validation. */
+export function publicDirectoryDocument(document: TopologyDocument): TopologyDocument {
+  const visible = new Set<string>();
+  const visit = (node: TopologyNode): TopologyNode | undefined => {
+    if (node.type === 'article') {
+      visible.add(node.id);
+      return { ...node };
+    }
+    const children = (node.children ?? []).map(visit).filter((child): child is TopologyNode => child !== undefined);
+    if (node.type !== 'root' && children.length === 0) return undefined;
+    visible.add(node.id);
+    return { ...node, children };
+  };
+  const root = visit(document.root)!;
+  return parseTopology({ version: 1, root,
+    relations: document.relations.filter(([a, b]) => visible.has(a) && visible.has(b)) });
+}
