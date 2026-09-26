@@ -1,14 +1,298 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>XAN9x · 工作台</title><link rel="stylesheet" href="/app.css"><script type="module" src="/app.js"></script></head>
-<body><a class="skip" href="#main">跳到编辑区</a><header><div><strong>XAN9x</strong><span> / 工作台</span></div><div id="account" hidden><a href="/api/export" download>导出私有快照</a><button id="logout">退出</button></div></header>
-<p id="message" role="status" aria-live="polite"></p>
-<section id="login"><h1>登录工作台</h1><p>文章、目录和私有预览。保存不等于发布。</p><form id="login-form"><label>密码<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label><button type="submit">登录</button></form></section>
-<main id="main" hidden><div class="toolbar"><div><h1>内容工作区</h1><p id="revision"></p></div><button id="reload">重新加载</button></div><p id="source-warning" class="warning" hidden>内容源已变化。私有编辑没有被覆盖；发布前需要人工核对合并，当前不能自动发布。</p><p class="notice">这里的保存仅写入私有工作区。尚未接通远端发布，不会修改线上博客。</p>
-<div class="workspace"><aside><h2>完整目录</h2><p class="muted">包含空目录与草稿入口</p><nav id="tree" aria-label="内容目录"></nav><h2>文章</h2><button id="new-article">新建草稿</button><ul id="articles"></ul></aside>
-<section class="edit-pane"><h2>文章编辑</h2><form id="article-form"><fieldset id="article-fields" disabled><div class="two"><label>稳定 ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}" maxlength="128"></label><label>文件路径<input name="path" required placeholder="articles/example.md"></label></div><label>标题<input name="title" required maxlength="240"></label><label>摘要<textarea name="description" rows="2" maxlength="10000"></textarea></label><div class="two"><label>发布日期<input name="pubDate" type="date" required></label><label class="checkbox"><input name="draft" type="checkbox">草稿（不公开）</label></div><label>主题 ID（逗号分隔）<input name="topics" placeholder="infrastructure, cicd"></label><label>Markdown 正文<textarea name="body" rows="18" spellcheck="false"></textarea></label><div class="actions"><button type="submit" class="primary">保存文章</button><button id="preview-body" type="button">预览当前正文</button><button id="delete-article" type="button" class="danger">删除文章</button></div></fieldset></form><p id="article-refs" class="muted"></p><section id="body-preview" hidden><h3>当前正文预览 · 未发布</h3><p class="muted">安全 Markdown 预览，不执行 HTML；不代表最终 Astro 排版。</p><article id="rendered-body"></article></section></section>
-<section class="directory-pane"><h2>目录与文章绑定</h2><p id="selected-node"></p><form id="directory-form"><fieldset id="directory-fields"><label>目录名称<input name="label" required maxlength="240"></label><label>目录说明<textarea name="description" rows="2"></textarea></label><button type="submit">保存目录</button></fieldset></form><form id="rebind-form" hidden><label>绑定文章<select name="articleId"></select></label><button type="submit">修改绑定</button><button type="button" id="edit-bound">编辑这篇文章</button></form>
-<details open><summary>新增子目录</summary><form id="add-directory-form"><label>节点 ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}"></label><label>名称<input name="label" required maxlength="240"></label><label>类型<select name="kind"><option value="topic">主题目录</option><option value="index">索引目录</option></select></label><button type="submit">添加到所选目录</button></form></details>
-<details open><summary>添加文章入口</summary><form id="bind-form"><label>文章<select name="articleId"></select></label><label>入口节点 ID<input name="nodeId" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}"></label><button type="submit">绑定到所选目录</button></form></details>
-<details><summary>移动、排序与移除</summary><form id="move-form"><label>目标父目录<select name="parentId"></select></label><label>位置（从 1 开始）<input name="position" type="number" min="1" max="2001" value="1" required></label><button type="submit">移动所选节点</button></form><button id="remove-node" class="danger">移除所选节点及子树</button><p class="muted">移除入口不删除文章。仍被文章主题引用的分类不能直接删除。</p></details></section></div>
-<section class="preview-section"><div class="toolbar"><div><h2>地图预览</h2><p class="muted">使用已保存版本。打开文章会回到本页编辑器，不跳离工作台。</p></div><div class="actions"><button id="preview-editing">完整目录（含草稿）</button><button id="preview-public">模拟公开地图</button></div></div><p id="preview-caption" role="status"></p><div class="preview-viewport"><div id="map-preview"></div></div></section>
-</main><footer>私有工作区 · 发布通道尚未配置</footer></body></html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>XAN9x · 工作台</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">跳到编辑区</a>
+    <header class="app-header">
+      <div class="brand">
+        <strong>XAN9x</strong><span>工作台</span><span class="private-label">私有</span>
+      </div>
+      <div id="account" hidden>
+        <details class="account-menu">
+          <summary>工作区选项</summary>
+          <div class="menu-content">
+            <p id="revision" class="muted"></p>
+            <button id="reload" type="button">重新加载工作区</button
+            ><a href="/api/export" download>导出私有快照</a><button id="logout" type="button">退出</button>
+          </div>
+        </details>
+      </div>
+    </header>
+    <div id="message" class="feedback" role="status" aria-live="polite" hidden></div>
+    <section id="login">
+      <p class="eyebrow">个人博客</p>
+      <h1>登录工作台</h1>
+      <p class="muted">写文章，整理目录，预览地图。<br />这里的修改不会自动发布到博客。</p>
+      <form id="login-form">
+        <label
+          >密码<input
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            maxlength="1024" /></label
+        ><button class="primary" type="submit">登录</button>
+      </form>
+    </section>
+    <main id="main" hidden>
+      <div class="workspace-heading">
+        <h1>内容工作区</h1>
+        <span class="muted">保存到私有工作区，不会直接发布</span>
+      </div>
+      <div class="workspace-nav">
+        <nav aria-label="工作区视图">
+          <button id="view-articles" type="button" aria-pressed="true" aria-controls="articles-view">
+            写文章</button
+          ><button id="view-directory" type="button" aria-pressed="false" aria-controls="directory-view">
+            管理目录</button
+          ><button id="view-preview" type="button" aria-pressed="false" aria-controls="preview-view">
+            地图预览
+          </button>
+        </nav>
+        <span id="save-status" role="status">已保存</span>
+      </div>
+      <p id="source-warning" class="warning" hidden>
+        内容源已变化。你的私有编辑仍然保留；发布前需要人工核对合并。
+      </p>
+      <section id="articles-view" class="article-layout" aria-label="文章工作区">
+        <div class="mobile-library-controls">
+          <button id="toggle-library" type="button" aria-expanded="false" aria-controls="article-library">
+            文章列表 <span id="mobile-article-count"></span></button
+          ><button id="mobile-new-article" type="button" class="primary">新建草稿</button>
+        </div>
+        <aside id="article-library" class="library">
+          <div class="section-heading">
+            <h2>文章 <span id="article-count" class="count"></span></h2>
+            <button id="new-article" type="button" class="primary">新建草稿</button>
+          </div>
+          <label class="search-label"
+            >搜索文章<input
+              id="article-search"
+              type="search"
+              placeholder="标题或关键词"
+              autocomplete="off" /></label
+          ><label class="filter-label"
+            >筛选<select id="article-filter" aria-label="筛选">
+              <option value="all">全部文章</option>
+              <option value="draft">草稿</option>
+              <option value="ready">可公开</option>
+            </select></label
+          >
+          <ul id="articles"></ul>
+          <p id="article-list-empty" class="muted" hidden>没有匹配的文章，试试其他关键词。</p>
+          <p class="sidebar-note">「可公开」仅表示文章不是草稿，<br />不代表已发布到线上。</p>
+        </aside>
+        <section class="edit-pane" aria-label="文章编辑">
+          <div id="article-empty" class="empty-state" hidden>
+            <h2>从第一篇文章开始</h2>
+            <p>先写下标题和正文，分类与地图入口可以稍后整理。</p>
+            <button id="empty-new-article" class="primary" type="button">创建草稿</button>
+          </div>
+          <div id="article-editor">
+            <form id="article-form">
+              <fieldset id="article-fields" disabled>
+                <div class="editor-toolbar">
+                  <div>
+                    <span id="article-state" class="badge">草稿</span
+                    ><span id="word-count" class="muted"></span>
+                  </div>
+                  <div class="actions">
+                    <span class="shortcut">Ctrl / ⌘ S</span
+                    ><button type="submit" class="primary">保存文章</button>
+                  </div>
+                </div>
+                <label class="title-label"
+                  >标题<input
+                    name="title"
+                    required
+                    maxlength="240"
+                    placeholder="给文章起个标题"
+                    autocomplete="off"
+                /></label>
+                <div class="body-toolbar">
+                  <div class="segmented" aria-label="正文显示方式">
+                    <button id="write-body" type="button" aria-pressed="true">编辑正文</button
+                    ><button id="preview-body" type="button" aria-pressed="false">预览当前正文</button>
+                  </div>
+                  <span class="muted">Markdown</span>
+                </div>
+                <label id="body-editor"
+                  >Markdown 正文<textarea
+                    name="body"
+                    rows="12"
+                    spellcheck="false"
+                    placeholder="从这里开始写作…"
+                  ></textarea>
+                </label>
+                <section id="body-preview" hidden aria-label="正文预览">
+                  <p class="preview-note">
+                    当前输入的安全 Markdown 预览。预览不会保存或发布，也不代表最终博客排版。
+                  </p>
+                  <article id="rendered-body"></article>
+                </section>
+                <details id="article-settings" class="settings">
+                  <summary>摘要、分类与文章设置 <span id="settings-summary" class="muted"></span></summary>
+                  <label
+                    >摘要<textarea
+                      name="description"
+                      rows="2"
+                      maxlength="10000"
+                      placeholder="用一两句话说明文章内容"
+                    ></textarea>
+                  </label>
+                  <div class="two">
+                    <label>发布日期<input name="pubDate" type="date" required /></label
+                    ><label class="checkbox"><input name="draft" type="checkbox" />草稿（不公开）</label>
+                  </div>
+                  <fieldset class="topics-fieldset">
+                    <legend>主题分类</legend>
+                    <p class="field-help">按名称选择分类。地图中的文章入口在「管理目录」中单独安排。</p>
+                    <div id="topic-options"></div>
+                    <input name="topics" type="hidden" />
+                  </fieldset>
+                  <details class="advanced">
+                    <summary>高级：链接标识与文件路径</summary>
+                    <p class="field-help">已自动填写，通常无需修改。文章 ID 首次保存后固定，决定文章链接。</p>
+                    <div class="two">
+                      <label
+                        >稳定 ID<input
+                          name="id"
+                          required
+                          pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+                          maxlength="128" /></label
+                      ><label>文件路径<input name="path" required placeholder="articles/example.md" /></label>
+                    </div>
+                  </details>
+                </details>
+              </fieldset>
+            </form>
+            <div class="article-footer">
+              <div>
+                <p id="article-refs" class="muted"></p>
+                <button id="manage-entry" type="button" class="text-button">管理地图入口</button>
+              </div>
+              <details id="article-danger" class="danger-menu">
+                <summary>更多操作</summary>
+                <button id="delete-article" type="button" class="danger">删除文章</button>
+              </details>
+            </div>
+          </div>
+        </section>
+      </section>
+      <section id="directory-view" hidden aria-label="目录工作区">
+        <div class="view-intro">
+          <h2>管理目录</h2>
+          <p class="muted">选中左侧目录，再修改名称、添加子目录或放入文章。空目录只在编辑时显示。</p>
+        </div>
+        <div class="directory-layout">
+          <aside class="directory-tree">
+            <div class="section-heading">
+              <h3>完整目录</h3>
+              <button id="collapse-tree" type="button" class="text-button">收起全部</button>
+            </div>
+            <nav id="tree" aria-label="内容目录"></nav>
+          </aside>
+          <section class="directory-pane">
+            <p id="node-breadcrumb" class="breadcrumb"></p>
+            <h2 id="node-heading"></h2>
+            <p id="selected-node" class="muted"></p>
+            <form id="directory-form">
+              <fieldset id="directory-fields">
+                <label>目录名称<input name="label" required maxlength="240" /></label
+                ><label
+                  >目录说明<textarea
+                    name="description"
+                    rows="3"
+                    placeholder="说明这个目录收录什么内容"
+                  ></textarea></label
+                ><button type="submit" class="primary">保存目录</button>
+              </fieldset>
+            </form>
+            <form id="rebind-form" hidden>
+              <p class="field-help">这是一个文章入口。修改绑定不会删除原文章。</p>
+              <label>绑定文章<select name="articleId"></select></label>
+              <div class="actions">
+                <button type="button" id="edit-bound" class="primary">编辑这篇文章</button
+                ><button type="submit">修改绑定</button>
+              </div>
+            </form>
+            <details id="add-directory-panel" class="settings">
+              <summary>新增子目录</summary>
+              <form id="add-directory-form">
+                <label>名称<input name="label" required maxlength="240" placeholder="例如：开发笔记" /></label
+                ><label
+                  >类型<select name="kind">
+                    <option value="topic">主题目录</option>
+                    <option value="index">索引目录</option>
+                  </select></label
+                >
+                <details class="advanced">
+                  <summary>高级：节点标识（自动生成）</summary>
+                  <label
+                    >节点 ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+                  /></label>
+                </details>
+                <button type="submit">添加到所选目录</button>
+              </form>
+            </details>
+            <details id="bind-panel" class="settings">
+              <summary>添加文章入口</summary>
+              <form id="bind-form">
+                <p class="field-help">选择已有文章，为它在当前目录中创建一个入口。</p>
+                <label>文章<select name="articleId"></select></label>
+                <p id="bind-empty" class="muted" hidden>还没有文章，请先到「写文章」创建草稿。</p>
+                <details class="advanced">
+                  <summary>高级：入口标识（自动生成）</summary>
+                  <label
+                    >入口节点 ID<input name="nodeId" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+                  /></label>
+                </details>
+                <button type="submit">绑定到所选目录</button>
+              </form>
+            </details>
+            <details id="move-panel" class="settings">
+              <summary>移动、排序与移除</summary>
+              <form id="move-form">
+                <label>目标父目录<select name="parentId"></select></label
+                ><label
+                  >位置（从 1 开始）<input
+                    name="position"
+                    type="number"
+                    min="1"
+                    max="2001"
+                    value="1"
+                    required /></label
+                ><button type="submit">移动所选节点</button>
+              </form>
+              <div class="danger-zone">
+                <button id="remove-node" type="button" class="danger">移除所选节点及子树</button>
+                <p class="field-help">只移除目录入口，不删除文章正文。被文章分类引用的目录不能直接移除。</p>
+              </div>
+            </details>
+          </section>
+        </div>
+      </section>
+      <section id="preview-view" class="preview-section" hidden aria-label="地图预览">
+        <div class="view-intro">
+          <div>
+            <h2>地图预览</h2>
+            <p class="muted">使用已保存内容。点击文章末端，再选择「打开内容」回到编辑器。</p>
+          </div>
+          <div class="segmented">
+            <button id="preview-public" type="button" aria-pressed="true">模拟公开地图</button
+            ><button id="preview-editing" type="button" aria-pressed="false">完整目录（含草稿）</button>
+          </div>
+        </div>
+        <p id="preview-caption" role="status"></p>
+        <div class="preview-viewport"><div id="map-preview"></div></div>
+      </section>
+    </main>
+    <footer>内容仅保存在私有工作区 · 发布通道尚未配置</footer>
+  </body>
+</html>

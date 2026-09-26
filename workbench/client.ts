@@ -2,148 +2,289 @@ import { mountTopology, type TopologyInstance, type TopologyNode } from '@xan9x/
 import '@xan9x/topology/style.css';
 import './style.css';
 import type { Workspace, Command } from './model';
+import { uniqueId, matchesArticle } from './ui-helpers';
+
 interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[] } }
 interface State { revision: string; sourceChanged: boolean; workspace: Workspace; articles: Article[] }
+type View = 'articles' | 'directory' | 'preview';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = (id: string) => $<HTMLFormElement>(id);
 const field = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLInputElement;
 const select = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLSelectElement;
 let csrf = ''; let state: State; let selectedNode = ''; let selectedArticle: string | undefined;
+let creating = false; let pending = false; let view: View = 'articles';
+let map: TopologyInstance | undefined;
+let mapDocument: Parameters<typeof mountTopology>[1] | undefined;
+let mapWidth = 0; let mapMode: 'editing' | 'public' = 'public';
+let articleSeed = ''; let autoArticleId = ''; let autoArticlePath = ''; let autoDirectoryId = ''; let directorySeed = '';
 const dirtyForms = new Set<string>();
-function clearDirty() { dirty = false; dirtyForms.clear(); }
-let creating = false; let dirty = false; let pending = false; let map: TopologyInstance | undefined;
-function message(text: string, error = false) { $('message').textContent = text; $('message').classList.toggle('error', error); }
+const expandedNodes = new Set<string>();
+let messageTimer: ReturnType<typeof setTimeout> | undefined;
+function updateStatus() {
+  $('save-status').textContent = pending ? '处理中…' : dirtyForms.size ? '有未保存修改' : '已保存 · 仅私有';
+  $('save-status').classList.toggle('unsaved', dirtyForms.size > 0);
+  if (state) updateArticleSummary();
+}
+function clearDirty() { dirtyForms.clear(); updateStatus(); }
+function message(text: string, error = false) {
+  clearTimeout(messageTimer);
+  $('message').textContent = text; $('message').hidden = !text;
+  $('message').classList.toggle('error', error); $('message').setAttribute('role', error ? 'alert' : 'status');
+  if (!error && text) messageTimer = setTimeout(() => { $('message').hidden = true; }, 6000);
+}
+class ApiError extends Error { constructor(message: string, readonly status: number) { super(message); } }
 async function api<T>(url: string, value?: unknown): Promise<T> {
   const response = await fetch(url, { method: value === undefined ? 'GET' : 'POST', credentials: 'same-origin',
-    headers: value === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: value === undefined ? undefined : JSON.stringify(value) });
+    headers: value === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: value === undefined ? undefined : JSON.stringify(value) }).catch(() => { throw new Error('无法连接工作台。请检查 SSH 隧道或网络，然后重试；当前输入仍然保留。'); });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? '请求失败。'); return result;
+  if (!response.ok) throw new ApiError(result.error ?? '请求失败。', response.status); return result;
 }
 async function action(run: () => Promise<void>) {
   if (pending) return;
-  pending = true; document.body.setAttribute('aria-busy', 'true');
-  // Lock editable controls too: a response must not overwrite typing made during an in-flight save.
+  pending = true; document.body.setAttribute('aria-busy', 'true'); updateStatus();
+  // Keep the existing in-flight editing lock: a save response must never overwrite new typing.
+  const focused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
   const controls = [...document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>('button,input,select,textarea')];
   const disabled = controls.map(control => control.disabled); controls.forEach(control => control.disabled = true);
-  try { await run(); } catch (error) { message(error instanceof Error ? error.message : '操作失败。', true); }
-  finally { controls.forEach((control, i) => control.disabled = disabled[i]!); pending = false; document.body.removeAttribute('aria-busy'); }
+  try { await run(); }
+  catch (error) { message(error instanceof ApiError && error.status === 401 && state ? '登录已过期。请先复制未保存的内容，再刷新页面重新登录；当前输入仍然保留。' : error instanceof Error ? error.message : '操作失败，当前输入仍然保留。', true); }
+  finally {
+    controls.forEach((control, i) => control.disabled = disabled[i]!); pending = false; document.body.removeAttribute('aria-busy');
+    if (state) ($('bind-form').querySelector('button[type=submit]') as HTMLButtonElement).disabled = !state.articles.length;
+    updateStatus();
+    if (focused?.isConnected && focused.getClientRects().length) focused.focus({ preventScroll: true });
+  }
 }
 function flat(node = state.workspace.topology.document.root, parent?: TopologyNode): { node: TopologyNode; parent?: TopologyNode }[] {
   return [{ node, parent }, ...(node.children ?? []).flatMap(child => flat(child, node))];
 }
-function discard() { return !dirty || window.confirm('有尚未保存的表单修改，确定放弃并切换吗？'); }
+function trail(id: string): string[] {
+  const entries = flat(); const names: string[] = []; let entry = entries.find(e => e.node.id === id);
+  while (entry) { names.unshift(entry.node.label); entry = entry.parent ? entries.find(e => e.node.id === entry!.parent!.id) : undefined; }
+  return names;
+}
+function expandAncestors(id: string) {
+  const entries = flat(); let entry = entries.find(e => e.node.id === id);
+  while (entry?.parent) { expandedNodes.add(entry.parent.id); entry = entries.find(e => e.node.id === entry!.parent!.id); }
+}
+function discard() { return !dirtyForms.size || window.confirm('有尚未保存的修改。确定放弃这些修改并切换吗？'); }
 function selectOptions(target: HTMLSelectElement, options: { value: string; text: string }[], value?: string) {
   target.replaceChildren(...options.map(item => new Option(item.text, item.value))); if (value !== undefined) target.value = value;
 }
 function articleLabel(id: string) { const a = state.articles.find(a => a.id === id); return a ? `${a.data.title}${a.data.draft ? ' · 草稿' : ''}` : id; }
+function setView(next: View) {
+  view = next;
+  for (const name of ['articles', 'directory', 'preview'] as const) { $(name + '-view').hidden = name !== next; $('view-' + name).setAttribute('aria-pressed', String(name === next)); }
+}
+function updateArticleList() {
+  const query = $<HTMLInputElement>('article-search').value;
+  const filter = $<HTMLSelectElement>('article-filter').value;
+  const articles = state.articles.filter(a => matchesArticle(a, query, filter));
+  $('article-count').textContent = String(state.articles.length);
+  $('mobile-article-count').textContent = String(state.articles.length);
+  $('article-list-empty').hidden = articles.length > 0;
+  $('articles').replaceChildren(...articles.map(a => {
+    const li = document.createElement('li'); const button = document.createElement('button');
+    button.type = 'button'; button.dataset.articleId = a.id; button.setAttribute('aria-current', String(a.id === selectedArticle && !creating));
+    const title = document.createElement('span'); title.className = 'article-name'; title.textContent = a.data.title;
+    const meta = document.createElement('span'); meta.className = 'article-meta'; meta.textContent = `${a.data.draft ? '草稿' : '可公开'} · ${a.data.pubDate.slice(0, 10)}`;
+    button.append(title, meta); button.addEventListener('click', () => { if (!discard()) return; clearDirty(); showArticle(a.id); toggleLibrary(false); });
+    li.append(button); return li;
+  }));
+}
+function bodyMode(preview: boolean) {
+  $('body-editor').hidden = preview; $('body-preview').hidden = !preview;
+  $('write-body').setAttribute('aria-pressed', String(!preview)); $('preview-body').setAttribute('aria-pressed', String(preview));
+}
+function updateArticleSummary() {
+  const body = field('article-form', 'body').value;
+  $('word-count').textContent = `${body.replace(/\s/g, '').length.toLocaleString()} 字符 · ${pending ? '处理中' : dirtyForms.has('article-form') ? '未保存' : '已保存'}`;
+  $('article-state').textContent = field('article-form', 'draft').checked ? '草稿' : '可公开';
+  $('settings-summary').textContent = `${field('article-form', 'draft').checked ? '草稿' : '可公开'} · ${field('article-form', 'topics').value.split(',').filter(s => s.trim()).length} 个分类`;
+}
 function showArticle(id?: string, fresh = false) {
   const a = state.articles.find(a => a.id === id);
-  creating = fresh; selectedArticle = id;
-  $<HTMLFieldSetElement>('article-fields').disabled = !a && !fresh;
-  if (!a && !fresh) { form('article-form').reset(); $('article-refs').textContent = '选择文章或创建新草稿。'; return; }
-  const data = a?.data ?? { id: '', title: '', description: '', pubDate: new Date().toISOString(), draft: true, topics: [] };
+  creating = fresh; selectedArticle = a?.id;
+  const empty = !a && !fresh;
+  $('article-empty').hidden = !empty; $('article-editor').hidden = empty;
+  $<HTMLFieldSetElement>('article-fields').disabled = empty;
+  if (empty) { form('article-form').reset(); updateArticleList(); return; }
+  articleSeed = 'note-' + crypto.randomUUID().slice(0, 8);
+  const data = a?.data ?? { id: uniqueId('', state.articles.map(a => a.id), articleSeed), title: '', description: '', pubDate: new Date().toISOString(), draft: true, topics: [] };
   for (const name of ['id', 'title', 'description'] as const) field('article-form', name).value = data[name];
   field('article-form', 'id').readOnly = !fresh;
-  field('article-form', 'path').value = a?.path ?? 'articles/';
+  field('article-form', 'path').value = a?.path ?? 'articles/' + data.id + '.md';
+  autoArticleId = data.id; autoArticlePath = field('article-form', 'path').value;
   field('article-form', 'pubDate').value = data.pubDate.slice(0, 10);
   field('article-form', 'draft').checked = data.draft;
   field('article-form', 'topics').value = data.topics.join(', ');
   field('article-form', 'body').value = a?.body ?? '';
-  $('delete-article').hidden = fresh;
-  const refs = Object.entries(state.workspace.topology.articleRefs).filter(([, article]) => article === id).map(([node]) => node);
-  $('article-refs').textContent = fresh ? '新文章默认草稿。ID 保存后固定；改名或移动文件不改变链接。' : '目录入口：' + (refs.join('、') || '尚未绑定到地图');
-  $('body-preview').hidden = true;
+  $('topic-options').replaceChildren(...flat().filter(e => ['topic', 'index'].includes(e.node.type)).map(e => {
+    const label = document.createElement('label'); label.className = 'checkbox';
+    const input = document.createElement('input'); input.type = 'checkbox'; input.value = e.node.id; input.checked = data.topics.includes(e.node.id); input.dataset.topicId = e.node.id;
+    label.append(input, document.createTextNode(trail(e.node.id).slice(1).join(' / ')));
+    input.addEventListener('input', () => { field('article-form', 'topics').value = [...$('topic-options').querySelectorAll<HTMLInputElement>('input:checked')].map(i => i.value).join(', '); });
+    return label;
+  }));
+  $('article-danger').hidden = fresh; $('manage-entry').hidden = fresh;
+  const refs = Object.entries(state.workspace.topology.articleRefs).filter(([, article]) => article === id).map(([node]) => trail(node).slice(0, -1).join(' / '));
+  $('article-refs').textContent = fresh ? '先保存草稿，再为它安排地图入口。' : refs.length ? '地图入口：' + refs.join('；') : '还没有地图入口，读者暂时无法从地图找到这篇文章。';
+  $<HTMLDetailsElement>('article-settings').open = false;
+  for (const details of $('article-settings').querySelectorAll('details')) details.open = false;
+  $<HTMLDetailsElement>('article-danger').open = false;
+  bodyMode(false); updateArticleSummary(); updateArticleList();
 }
 function showNode() {
   const found = flat().find(e => e.node.id === selectedNode) ?? flat()[0]!;
   selectedNode = found.node.id; const node = found.node; const article = node.type === 'article';
-  $('selected-node').textContent = `${node.id} · ${node.type}`;
+  $('node-heading').textContent = article ? articleLabel(state.workspace.topology.articleRefs[node.id]!) : node.label;
+  $('node-breadcrumb').textContent = trail(node.id).slice(0, -1).join(' / ') || '地图根目录';
+  $('selected-node').textContent = `${article ? '文章入口' : node.type === 'root' ? '根目录' : '目录'} · ${node.id}`;
   $('directory-form').hidden = article; $('rebind-form').hidden = !article;
   field('directory-form', 'label').value = node.label; field('directory-form', 'description').value = node.description ?? '';
   const articles = state.articles.map(a => ({ value: a.id, text: articleLabel(a.id) }));
-  selectOptions(select('bind-form', 'articleId'), articles);
+  selectOptions(select('bind-form', 'articleId'), articles, selectedArticle ?? articles[0]?.value);
   selectOptions(select('rebind-form', 'articleId'), articles, state.workspace.topology.articleRefs[node.id]);
   const descendants = new Set(flat(node).map(e => e.node.id));
-  selectOptions(select('move-form', 'parentId'), flat().filter(e => !descendants.has(e.node.id) && ['root', 'topic', 'index'].includes(e.node.type)).map(e => ({ value: e.node.id, text: `${e.node.label} (${e.node.id})` })), found.parent?.id);
-  const siblingIndex = found.parent?.children?.findIndex(n => n.id === node.id) ?? 0;
-  field('move-form', 'position').value = String(siblingIndex + 1);
-  $('move-form').hidden = !found.parent; $('remove-node').hidden = !found.parent;
-  $('add-directory-form').hidden = article; $('bind-form').hidden = article;
+  selectOptions(select('move-form', 'parentId'), flat().filter(e => !descendants.has(e.node.id) && ['root', 'topic', 'index'].includes(e.node.type)).map(e => ({ value: e.node.id, text: trail(e.node.id).join(' / ') })), found.parent?.id);
+  field('move-form', 'position').value = String((found.parent?.children?.findIndex(n => n.id === node.id) ?? 0) + 1);
+  $('move-panel').hidden = !found.parent;
+  $('add-directory-panel').hidden = article; $('bind-panel').hidden = article;
+  for (const id of ['add-directory-panel', 'bind-panel', 'move-panel']) $<HTMLDetailsElement>(id).open = false;
+  form('add-directory-form').reset(); directorySeed = 'directory-' + crypto.randomUUID().slice(0, 8);
+  autoDirectoryId = uniqueId('', flat().map(e => e.node.id), directorySeed); field('add-directory-form', 'id').value = autoDirectoryId;
+  updateBindingId(); $('bind-empty').hidden = state.articles.length > 0;
+  (form('bind-form').querySelector('button[type=submit]') as HTMLButtonElement).disabled = !state.articles.length;
+}
+function updateBindingId() { field('bind-form', 'nodeId').value = uniqueId(select('bind-form', 'articleId').value + '-link', flat().map(e => e.node.id), 'article-link'); }
+function renderTree() {
+  const tree = (node: TopologyNode): HTMLLIElement => {
+    const li = document.createElement('li'); const row = document.createElement('div'); row.className = 'tree-row';
+    const button = document.createElement('button'); button.className = 'node-button'; button.type = 'button';
+    button.textContent = node.type === 'article' ? articleLabel(state.workspace.topology.articleRefs[node.id]!) : node.label;
+    button.dataset.nodeId = node.id; button.setAttribute('aria-current', String(node.id === selectedNode));
+    button.addEventListener('click', () => {
+      if (!discard()) return; clearDirty(); selectedNode = node.id;
+      // Reset abandoned article inputs too, even though that view is currently hidden.
+      showArticle(selectedArticle, creating); showNode(); renderTree();
+      $('tree').querySelector<HTMLButtonElement>(`[data-node-id="${CSS.escape(node.id)}"]`)?.focus({ preventScroll: true });
+    });
+    if (node.children?.length) {
+      const children = document.createElement('ul'); children.append(...node.children.map(tree)); children.hidden = !expandedNodes.has(node.id);
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.dataset.toggleId = node.id; toggle.className = 'tree-toggle';
+      toggle.setAttribute('aria-expanded', String(!children.hidden)); toggle.setAttribute('aria-label', `${children.hidden ? '展开' : '收起'} ${node.label}`); toggle.textContent = children.hidden ? '展开' : '收起';
+      toggle.addEventListener('click', () => { if (expandedNodes.has(node.id)) expandedNodes.delete(node.id); else expandedNodes.add(node.id); renderTree(); $('tree').querySelector<HTMLButtonElement>(`[data-toggle-id="${CSS.escape(node.id)}"]`)?.focus({ preventScroll: true }); });
+      row.append(toggle, button); li.append(row, children);
+    } else { row.append(button); li.append(row); }
+    return li;
+  };
+  const list = document.createElement('ul'); list.append(tree(state.workspace.topology.document.root)); $('tree').replaceChildren(list);
 }
 function render() {
   $('login').hidden = true; $('main').hidden = false; $('account').hidden = false;
-  $('revision').textContent = '已保存版本 ' + state.revision.slice(0, 10) + ' · 仅私有工作区';
+  $('revision').textContent = '私有版本 ' + state.revision.slice(0, 10);
   $('source-warning').hidden = !state.sourceChanged;
-  const tree = (node: TopologyNode): HTMLLIElement => {
-    const li = document.createElement('li'); const button = document.createElement('button');
-    button.type = 'button'; button.textContent = node.type === 'article' ? articleLabel(state.workspace.topology.articleRefs[node.id]!) : node.label;
-    button.dataset.nodeId = node.id; button.setAttribute('aria-current', node.id === selectedNode ? 'true' : 'false');
-    button.addEventListener('click', () => { if (!discard()) return; clearDirty(); selectedNode = node.id;
-      if (node.type === 'article') { selectedArticle = state.workspace.topology.articleRefs[node.id]; creating = false; }
-      render();
-    }); li.append(button);
-    if (node.children?.length) { const ul = document.createElement('ul'); ul.append(...node.children.map(tree)); li.append(ul); } return li;
-  };
-  const ul = document.createElement('ul'); ul.append(tree(state.workspace.topology.document.root)); $('tree').replaceChildren(ul);
-  $('articles').replaceChildren(...state.articles.map(a => { const li = document.createElement('li'); const button = document.createElement('button');
-    button.type = 'button'; button.textContent = articleLabel(a.id); button.dataset.articleId = a.id;
-    button.addEventListener('click', () => { if (!discard()) return; clearDirty(); showArticle(a.id); }); li.append(button); return li;
-  }));
-  showNode(); showArticle(selectedArticle, creating);
+  if (!selectedArticle && !creating) selectedArticle = state.articles[0]?.id;
+  showNode(); expandAncestors(selectedNode); renderTree(); showArticle(selectedArticle, creating); setView(view); updateStatus();
 }
 async function save(command: Command) {
   const owner: Record<Command['type'], string> = { saveArticle: 'article-form', deleteArticle: 'article-form', addDirectory: 'add-directory-form', editDirectory: 'directory-form', moveNode: 'move-form', removeNode: '', bindArticle: 'bind-form', rebindArticle: 'rebind-form' };
-  if ([...dirtyForms].some(id => id !== owner[command.type]) && !confirm('其他表单还有未保存修改。继续此操作会放弃那些修改，是否继续？')) throw new Error('已取消，未保存的修改仍在表单中。');
+  if ([...dirtyForms].some(id => id !== owner[command.type]) && !confirm('其他表单还有未保存修改。继续此操作会放弃那些修改，是否继续？')) return;
+  const parent = flat().find(e => e.node.id === selectedNode)?.parent?.id;
   state = await api<State>('/api/command', { revision: state.revision, command }); clearDirty();
-  map?.destroy(); map = undefined; $('preview-caption').textContent = '内容已保存，请重新生成地图预览。'; render(); message('已保存到私有工作区，未发布。');
+  if (command.type === 'saveArticle') { selectedArticle = command.data.id as string; creating = false; }
+  if (command.type === 'deleteArticle') selectedArticle = undefined;
+  if (command.type === 'addDirectory') selectedNode = command.id;
+  if (command.type === 'bindArticle') selectedNode = command.nodeId;
+  if (command.type === 'removeNode') selectedNode = parent ?? state.workspace.topology.document.root.id;
+  map?.destroy(); map = undefined; mapDocument = undefined;
+  $('preview-caption').textContent = '内容已保存，下次打开预览时将使用新版本。'; render(); message('已保存到私有工作区，未发布。');
 }
-for (const id of ['article-form', 'directory-form', 'rebind-form', 'add-directory-form', 'bind-form', 'move-form']) form(id).addEventListener('input', () => { dirty = true; dirtyForms.add(id); });
-window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); } });
+function toggleLibrary(open: boolean) { $('article-library').classList.toggle('is-open', open); $('toggle-library').setAttribute('aria-expanded', String(open)); }
+function newArticle() {
+  if (!discard()) return; clearDirty(); setView('articles'); showArticle(undefined, true); toggleLibrary(false);
+  // Even a blank newly-created draft needs a navigation guard.
+  dirtyForms.add('article-form'); updateStatus(); field('article-form', 'title').focus();
+}
+for (const id of ['article-form', 'directory-form', 'rebind-form', 'add-directory-form', 'bind-form', 'move-form']) {
+  form(id).addEventListener('input', () => { dirtyForms.add(id); updateStatus(); if (id === 'article-form') updateArticleSummary(); });
+  form(id).addEventListener('invalid', event => { let parent = (event.target as HTMLElement).parentElement; while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; } }, true);
+}
+window.addEventListener('beforeunload', event => { if (dirtyForms.size) event.preventDefault(); });
+document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && state && view === 'articles' && (selectedArticle || creating)) { event.preventDefault(); if (!pending) form('article-form').requestSubmit(); } });
 form('login-form').addEventListener('submit', event => { event.preventDefault(); const password = field('login-form', 'password').value;
   void action(async () => { const session = await api<{ csrf: string }>('/api/login', { password }); csrf = session.csrf;
-    field('login-form', 'password').value = ''; state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; render(); message('已登录。'); });
+    field('login-form', 'password').value = ''; state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; expandedNodes.add(selectedNode); render(); message(''); });
 });
 $('logout').addEventListener('click', () => { if (!discard()) return; void action(async () => { await api('/api/logout', {}); clearDirty(); location.reload(); }); });
-$('reload').addEventListener('click', () => { if (!discard()) return; void action(async () => { state = await api<State>('/api/workspace'); clearDirty(); creating = false; render(); message('已重新加载。'); }); });
-$('new-article').addEventListener('click', () => { if (!discard()) return; clearDirty(); showArticle(undefined, true); field('article-form', 'id').focus(); });
-field('article-form', 'id').addEventListener('input', () => { if (creating) field('article-form', 'path').value = 'articles/' + field('article-form', 'id').value + '.md'; });
-form('article-form').addEventListener('submit', event => { event.preventDefault(); const value = (name: string) => field('article-form', name).value;
-  const command: Command = { type: 'saveArticle', create: creating, path: value('path'), body: value('body'), data: { id: value('id'), title: value('title'), description: value('description'),
-    pubDate: value('pubDate'), draft: field('article-form', 'draft').checked, topics: value('topics').split(',').map(s => s.trim()).filter(Boolean) } };
-  void action(async () => { await save(command); selectedArticle = command.data.id as string; creating = false; showArticle(selectedArticle); });
+$('reload').addEventListener('click', () => { if (!discard()) return; void action(async () => { state = await api<State>('/api/workspace'); clearDirty(); creating = false; map?.destroy(); map = undefined; mapDocument = undefined; render(); $<HTMLDetailsElement>('account').querySelector('details')!.open = false; if (view === 'preview') await showMap(mapMode); message('已重新加载。'); }); });
+for (const next of ['articles', 'directory', 'preview'] as const) $('view-' + next).addEventListener('click', () => {
+  if (next === view || pending || !discard()) return;
+  clearDirty(); creating = false; render(); setView(next);
+  if (next === 'preview') void action(() => showMap(mapMode));
 });
-$('preview-body').addEventListener('click', () => { const body = field('article-form', 'body').value; void action(async () => {
-  const result = await api<{ html: string }>('/api/markdown', { body }); $('rendered-body').innerHTML = result.html; $('body-preview').hidden = false; message('正文预览不会保存或发布。'); }); });
+$('toggle-library').addEventListener('click', () => toggleLibrary(!$('article-library').classList.contains('is-open')));
+$('mobile-new-article').addEventListener('click', newArticle);
+$('new-article').addEventListener('click', newArticle); $('empty-new-article').addEventListener('click', newArticle);
+$('article-search').addEventListener('input', updateArticleList); $('article-filter').addEventListener('change', updateArticleList);
+field('article-form', 'title').addEventListener('input', () => {
+  if (!creating || field('article-form', 'id').value !== autoArticleId) return;
+  autoArticleId = uniqueId(field('article-form', 'title').value, state.articles.map(a => a.id), articleSeed); field('article-form', 'id').value = autoArticleId;
+  if (field('article-form', 'path').value === autoArticlePath) { autoArticlePath = 'articles/' + autoArticleId + '.md'; field('article-form', 'path').value = autoArticlePath; }
+});
+field('article-form', 'id').addEventListener('input', () => { if (creating && field('article-form', 'path').value === autoArticlePath) { autoArticlePath = 'articles/' + field('article-form', 'id').value + '.md'; field('article-form', 'path').value = autoArticlePath; } });
+form('article-form').addEventListener('submit', event => { event.preventDefault(); const value = (name: string) => field('article-form', name).value;
+  const command: Command = { type: 'saveArticle', create: creating, path: value('path'), body: value('body'), data: { id: value('id'), title: value('title'), description: value('description'), pubDate: value('pubDate'), draft: field('article-form', 'draft').checked, topics: value('topics').split(',').map(s => s.trim()).filter(Boolean) } };
+  void action(() => save(command));
+});
+$('write-body').addEventListener('click', () => bodyMode(false));
+$('preview-body').addEventListener('click', () => { const body = field('article-form', 'body').value; void action(async () => { const result = await api<{ html: string }>('/api/markdown', { body }); $('rendered-body').innerHTML = result.html; bodyMode(true); }); });
 $('delete-article').addEventListener('click', () => {
   if (!selectedArticle) return; const id = selectedArticle;
-  const refs = Object.entries(state.workspace.topology.articleRefs).filter(([, article]) => article === id).map(([node]) => node);
+  const refs = Object.entries(state.workspace.topology.articleRefs).filter(([, article]) => article === id).map(([node]) => trail(node).join(' / '));
   if (refs.length) { message('请先移除或重新绑定这些入口：' + refs.join('、'), true); return; }
-  if (!confirm('从私有工作区删除文章 ' + id + '？未保存的修改也会丢弃；不会直接修改线上内容。')) return;
-  void action(async () => { await save({ type: 'deleteArticle', id, confirm: true }); selectedArticle = undefined; showArticle(); });
+  if (!confirm('从私有工作区删除文章「' + articleLabel(id) + '」？未保存的修改也会丢弃；不会直接修改线上内容。')) return;
+  void action(() => save({ type: 'deleteArticle', id, confirm: true }));
 });
-form('directory-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'editDirectory', id: selectedNode, label: field('directory-form','label').value, description: field('directory-form','description').value }; void action(() => save(command)); });
-form('add-directory-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'addDirectory', parentId: selectedNode, id: field('add-directory-form','id').value, label: field('add-directory-form','label').value, kind: select('add-directory-form','kind').value as 'topic' | 'index' }; void action(async () => { await save(command); form('add-directory-form').reset(); }); });
-form('bind-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'bindArticle', parentId: selectedNode, nodeId: field('bind-form','nodeId').value, articleId: select('bind-form','articleId').value }; void action(async () => { await save(command); field('bind-form','nodeId').value = ''; }); });
-form('rebind-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'rebindArticle', nodeId: selectedNode, articleId: select('rebind-form','articleId').value }; void action(() => save(command)); });
-$('edit-bound').addEventListener('click', () => { if (!discard()) return; clearDirty(); showArticle(state.workspace.topology.articleRefs[selectedNode]); });
-form('move-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'moveNode', id: selectedNode, parentId: select('move-form','parentId').value, index: Number(field('move-form','position').value) - 1 }; void action(() => save(command)); });
+$('manage-entry').addEventListener('click', () => {
+  if (!discard()) return; clearDirty();
+  const ref = Object.entries(state.workspace.topology.articleRefs).find(([, id]) => id === selectedArticle)?.[0];
+  selectedNode = ref ?? state.workspace.topology.document.root.id; render(); setView('directory');
+  if (!ref) $<HTMLDetailsElement>('bind-panel').open = true;
+});
+form('directory-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'editDirectory', id: selectedNode, label: field('directory-form', 'label').value, description: field('directory-form', 'description').value }; void action(() => save(command)); });
+field('add-directory-form', 'label').addEventListener('input', () => { if (field('add-directory-form', 'id').value === autoDirectoryId) { autoDirectoryId = uniqueId(field('add-directory-form', 'label').value, flat().map(e => e.node.id), directorySeed); field('add-directory-form', 'id').value = autoDirectoryId; } });
+form('add-directory-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'addDirectory', parentId: selectedNode, id: field('add-directory-form', 'id').value, label: field('add-directory-form', 'label').value, kind: select('add-directory-form', 'kind').value as 'topic' | 'index' }; void action(() => save(command)); });
+select('bind-form', 'articleId').addEventListener('change', updateBindingId);
+form('bind-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'bindArticle', parentId: selectedNode, nodeId: field('bind-form', 'nodeId').value, articleId: select('bind-form', 'articleId').value }; void action(() => save(command)); });
+form('rebind-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'rebindArticle', nodeId: selectedNode, articleId: select('rebind-form', 'articleId').value }; void action(() => save(command)); });
+$('edit-bound').addEventListener('click', () => { if (!discard()) return; clearDirty(); showArticle(state.workspace.topology.articleRefs[selectedNode]); setView('articles'); field('article-form', 'title').focus(); });
+form('move-form').addEventListener('submit', event => { event.preventDefault(); const command: Command = { type: 'moveNode', id: selectedNode, parentId: select('move-form', 'parentId').value, index: Number(field('move-form', 'position').value) - 1 }; void action(() => save(command)); });
 $('remove-node').addEventListener('click', () => {
   const node = flat().find(e => e.node.id === selectedNode)!.node; const removed = flat(node);
-  if (!confirm(`移除 ${node.label} 及其子树（${removed.length} 个节点、${removed.filter(e => e.node.type === 'article').length} 个文章入口）和相关关系边？文章正文不会删除。`)) return;
+  if (!confirm(`移除 ${node.label} 及其子树（${removed.length} 个节点、${removed.filter(e => e.node.type === 'article').length} 个文章入口）？文章正文不会删除。`)) return;
   void action(() => save({ type: 'removeNode', id: selectedNode, confirm: true }));
 });
+$('collapse-tree').addEventListener('click', () => { expandedNodes.clear(); expandedNodes.add(state.workspace.topology.document.root.id); renderTree(); });
+function drawMap() {
+  if (!mapDocument || view !== 'preview') return;
+  mapWidth = Math.max(640, Math.floor($('map-preview').parentElement!.clientWidth));
+  $('map-preview').style.minWidth = mapWidth + 'px';
+  map?.destroy(); map = mountTopology($('map-preview'), mapDocument, { width: mapWidth, height: Math.min(640, Math.max(460, mapWidth * .52)), animate: false,
+    onNavigate(_href, node, event) { event.preventDefault(); if (!discard()) return; clearDirty(); selectedNode = node.id; creating = false; selectedArticle = state.workspace.topology.articleRefs[node.id]; render(); setView('articles'); field('article-form', 'title').focus(); }
+  });
+}
 async function showMap(mode: 'editing' | 'public') {
   const result = await api<{ document: Parameters<typeof mountTopology>[1] }>('/api/preview', { revision: state.revision, mode });
-  map?.destroy(); map = mountTopology($('map-preview'), result.document, { width: 1100, height: 480, animate: false,
-    onNavigate(_href, node, event) { event.preventDefault(); if (!discard()) return; clearDirty(); selectedNode = node.id; creating = false;
-      selectedArticle = state.workspace.topology.articleRefs[node.id]; render(); $('article-form').scrollIntoView({ block: 'start' }); }
-  });
-  $('preview-caption').textContent = `${mode === 'editing' ? '完整目录 · 含草稿和空分类' : '模拟公开地图 · 不含草稿和空分类'} · 版本 ${state.revision.slice(0, 10)}`;
+  mapMode = mode; mapDocument = result.document; drawMap();
+  $('preview-editing').setAttribute('aria-pressed', String(mode === 'editing')); $('preview-public').setAttribute('aria-pressed', String(mode === 'public'));
+  $('preview-caption').textContent = `${mode === 'editing' ? '完整目录 · 含草稿和空分类' : '模拟公开地图 · 隐藏草稿和空分类'} · 使用已保存版本 ${state.revision.slice(0, 10)}`;
 }
 $('preview-editing').addEventListener('click', () => void action(() => showMap('editing')));
 $('preview-public').addEventListener('click', () => void action(() => showMap('public')));
+new ResizeObserver(() => { if (view === 'preview' && mapDocument && Math.max(640, Math.floor($('map-preview').parentElement!.clientWidth)) !== mapWidth) drawMap(); }).observe($('map-preview').parentElement!);
 void action(async () => {
   try { const session = await api<{ csrf: string }>('/api/session'); csrf = session.csrf; }
-  catch { return; }
-  state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; render();
+  catch (error) { if (!(error instanceof ApiError && error.status === 401)) throw error; return; }
+  state = await api<State>('/api/workspace'); selectedNode = state.workspace.topology.document.root.id; expandedNodes.add(selectedNode); render();
 });
