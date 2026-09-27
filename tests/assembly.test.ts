@@ -35,6 +35,8 @@ test('isolated assembly includes pinned archive, excludes drafts and credentials
   assert.ok(!existsSync(path.join(f.site, 'content/.git')));
   assert.ok(!existsSync(path.join(f.site, 'workbench')));
   assert.ok(!existsSync(path.join(f.site, 'tests/workbench-store.test.ts')));
+  assert.ok(!existsSync(path.join(f.site, 'tests/workbench-publication-plan.test.ts')));
+  assert.ok(!existsSync(path.join(f.site, 'tests/workbench-publication-git.test.ts')));
   assert.ok(!existsSync(path.join(f.site, '.workbench')));
   assert.ok(!readFileSync(path.join(f.site, 'content/topology.json'), 'utf8').includes('secret'));
   assert.ok(!readFileSync(path.join(f.site, '.gitignore'), 'utf8').includes('\n.topology-package/\n'));

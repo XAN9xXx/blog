@@ -19,6 +19,7 @@
     "workbench:build": "node workbench/build.mjs",
     "workbench:start": "tsx workbench/server.ts",
     "workbench:password": "tsx workbench/password.ts",
+    "workbench:plan": "tsx workbench/plan-publication.ts",
     "workbench:test:browser": "playwright test --config workbench/playwright.config.ts"
   },
   "dependencies": {
