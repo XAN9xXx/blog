@@ -283,7 +283,7 @@ async function loadPublicationConfiguration() {
   const button = $<HTMLButtonElement>('review-publication'); button.disabled = true; publicationConfigured = false;
   const status = await api<{ configured: boolean; transport?: string; baseCommit?: string; visibilityDeclaration?: string }>('/api/publication');
   $('publication-configuration').textContent = status.transport === 'isolated-worker'
-    ? '已连接独立执行器配置 · 核对时读取远端 content/main · 首次真实发布尚未开放；网页服务不持有推送凭据。'
+    ? '已配置独立执行器 · 核对时读取远端 content/main · 首次真实发布尚未开放；网页服务不持有推送凭据。'
     : status.configured
     ? `本地基线 ${status.baseCommit!.slice(0, 12)} · 可见性声明：${({ private: '私有', public: '公开', unknown: '未确认' })[status.visibilityDeclaration as 'private' | 'public' | 'unknown']}（未查询远端）`
     : '尚未配置本地 Git 基线。需要在服务器配置只读内容仓库和导入提交，不需要在网页中填写凭据。';

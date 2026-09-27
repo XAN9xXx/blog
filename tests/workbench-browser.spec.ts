@@ -457,3 +457,17 @@ test('configured publication review shows saved differences and draft scope with
   await page.locator('#view-articles').click(); await page.locator('#view-publication').click();
   await expect(page.locator('#publication-result')).toBeHidden();
 });
+
+test('isolated reviewer explains disabled publishing and reports baseline migration blockers', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/publication', route => route.fulfill({ json: { configured: true, canPublish: false, transport: 'isolated-worker', remoteChecked: false } }));
+  await page.route('**/api/publication/plan', route => route.fulfill({ status: 409, json: { error: '远端内容基线缺少 topology.json，尚未完成内容格式迁移；未提交或推送。' } }));
+  let writes = 0; page.on('request', request => { if (/\/api\/(command|publish)$/.test(request.url())) writes++; });
+  await page.locator('#view-publication').click();
+  await expect(page.locator('#publication-configuration')).toContainText('已配置独立执行器');
+  await expect(page.locator('#publication-view')).toContainText('当前未开放真实推送');
+  await page.locator('#review-publication').click();
+  await expect(page.getByText('远端内容基线缺少 topology.json，尚未完成内容格式迁移；未提交或推送。', { exact: true })).toBeVisible();
+  await expect(page.locator('#publication-result')).toBeHidden();
+  expect(writes).toBe(0);
+});
