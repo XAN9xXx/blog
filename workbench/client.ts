@@ -3,7 +3,7 @@ import type { TopologyDocument } from '@xan9x/topology/schema';
 import '@xan9x/topology/style.css';
 import './style.css';
 import type { Workspace, Command } from './model';
-import { uniqueId, matchesArticle, previewSize, articleListSummary } from './ui-helpers';
+import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset } from './ui-helpers';
 
 interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[] } }
 interface State { revision: string; sourceChanged: boolean; workspace: Workspace; articles: Article[] }
@@ -345,7 +345,34 @@ function mapSize() {
   $('map-scroll-hint').hidden = viewport.clientWidth >= 640;
   return previewSize(viewport.clientWidth, window.innerHeight, viewport.getBoundingClientRect().top + window.scrollY);
 }
+let mapRevealFrame = 0;
+function revealMapSelection(event: Event) {
+  if (!event.isTrusted || !(event.target instanceof Element)) return;
+  if (event instanceof KeyboardEvent && !['Enter', ' '].includes(event.key)) return;
+  // Capture before the renderer stops node-click propagation. Synthetic clicks used
+  // to restore selection after a resize must not pull the page back to the inspector.
+  const target = event.target.closest<HTMLElement | SVGGElement>('.node[data-id], .panel-rel[data-id]');
+  if (!target) return;
+  cancelAnimationFrame(mapRevealFrame);
+  const instance = map; const id = target.dataset.id;
+  const reveal = () => {
+    if (!instance || map !== instance || view !== 'preview') return;
+    const current = instance.getState();
+    if (current.destroyed || current.selectedId !== id) return;
+    if (current.animating) { mapRevealFrame = requestAnimationFrame(reveal); return; }
+    const panel = $('map-preview').querySelector<HTMLElement>('.context-panel');
+    if (!panel || panel.hidden) return;
+    const { top, bottom } = panel.getBoundingClientRect();
+    const offset = panelScrollOffset(top, bottom, window.innerHeight);
+    if (Math.abs(offset) > 1) window.scrollBy({ top: offset, left: 0,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  };
+  mapRevealFrame = requestAnimationFrame(reveal);
+}
+$('map-preview').addEventListener('click', revealMapSelection, true);
+$('map-preview').addEventListener('keydown', revealMapSelection, true);
 function drawMap(preserveFocus = false) {
+  cancelAnimationFrame(mapRevealFrame);
   if (!mapDocument || view !== 'preview') return;
   const previous = preserveFocus ? map?.getState() : undefined;
   const selectedDirectory = previous?.selectedId && flat(mapDocument.root).find(({ node }) => node.id === previous.selectedId && ['topic', 'index'].includes(node.type))?.node;

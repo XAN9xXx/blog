@@ -364,3 +364,74 @@ test('empty directories lead to management instead of a nonexistent index', asyn
   await expect(page.locator('#add-directory-form select[name="kind"]')).toHaveAttribute('aria-describedby', 'directory-kind-help');
   expect(writes).toBe(0);
 });
+
+// Do not click the panel action before checking its geometry: Playwright would
+// auto-scroll it into view and hide the regression this test is intended to catch.
+for (const viewport of [{ width: 1651, height: 962 }, { width: 1366, height: 720 }, { width: 390, height: 844 }]) {
+  for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+    test(`opening an article reveals its title and action at ${viewport.width}x${viewport.height}, motion=${reducedMotion}`, async ({ page }, info) => {
+      // Enter the parent at desktop width: the pinned renderer has a separate
+      // narrow-root layout issue. This regression covers opening the inspector.
+      await page.setViewportSize(viewport.width < 640 ? { width: 1651, height: viewport.height } : viewport);
+      await page.emulateMedia({ reducedMotion }); await login(page);
+      await view(page, 'preview'); await mapNode(page, 'infrastructure'); await mapNode(page, 'cicd');
+      await page.setViewportSize(viewport);
+      if (viewport.width < 640) await expect(page.locator('#map-preview svg')).toHaveAttribute('viewBox', /^0 0 640 /);
+      await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+      const node = page.locator('#map-preview .node[data-id="hello"]');
+      await node.scrollIntoViewIfNeeded();
+      const horizontal = await page.locator('.preview-viewport').evaluate(el => el.scrollLeft);
+      await page.evaluate(() => {
+        const original = window.scrollBy.bind(window);
+        const calls: ScrollToOptions[] = [];
+        (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls = calls;
+        window.scrollBy = ((options: ScrollToOptions) => { calls.push(options); original(options); }) as typeof window.scrollBy;
+      });
+      await node.click();
+      const panel = page.locator('#map-preview .context-panel');
+      await expect(panel.locator('h3')).toBeInViewport({ ratio: 1 });
+      await expect(panel.locator('.panel-open')).toBeInViewport({ ratio: 1 });
+      await expect.poll(() => page.evaluate(() => (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls.length)).toBe(1);
+      const calls = await page.evaluate(() => (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls);
+      expect(calls[0].behavior).toBe(reducedMotion === 'reduce' ? 'instant' : 'smooth');
+      expect(calls[0].top).toBeGreaterThan(0); expect(calls[0].left).toBe(0);
+      expect(await page.locator('.preview-viewport').evaluate(el => el.scrollLeft)).toBe(horizontal);
+      expect(await panel.evaluate(el => el.contains(document.activeElement))).toBe(false);
+      // Read both rectangles in the same frame while smooth scrolling may still be running.
+      expect(await panel.evaluate(el => el.getBoundingClientRect().top - document.querySelector('#map-preview svg')!.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(-1);
+      await expect.poll(() => panel.evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(viewport.height - 15);
+      if (viewport.width === 1651 && reducedMotion === 'no-preference') await page.screenshot({ path: info.outputPath('revealed-inspector.png') });
+      // Restore/repaint is not a new user selection, even though the renderer opens a panel.
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+      await page.setViewportSize({ width: viewport.width - 10, height: viewport.height });
+      const width = await page.locator('.preview-viewport').evaluate(el => Math.max(640, Math.floor(el.clientWidth)));
+      await expect(page.locator('#map-preview svg')).toHaveAttribute('viewBox', new RegExp(`^0 0 ${width} `));
+      await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+      await expect(panel).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls.length)).toBe(1);
+    });
+  }
+}
+
+test('empty-directory reveal is not repeated by selection restoration or already-visible clicks', async ({ page }) => {
+  await page.setViewportSize({ width: 1651, height: 962 }); await page.emulateMedia({ reducedMotion: 'reduce' });
+  await login(page); await view(page, 'preview'); await page.getByRole('button', { name: '完整目录（含草稿）' }).click();
+  await mapNode(page, 'software'); await mapNode(page, 'dotnet');
+  const panel = page.locator('#map-preview .context-panel');
+  await expect(panel.locator('h3')).toBeInViewport({ ratio: 1 });
+  await expect(panel.getByRole('button', { name: '去管理目录添加内容', exact: true })).toBeInViewport({ ratio: 1 });
+  await page.evaluate(() => {
+    const original = window.scrollBy.bind(window); const calls: ScrollToOptions[] = [];
+    (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls = calls;
+    window.scrollBy = ((options: ScrollToOptions) => { calls.push(options); original(options); }) as typeof window.scrollBy;
+  });
+  await mapNode(page, 'dotnet'); // Same visible inspector: no unnecessary scroll.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await page.evaluate(() => (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls)).toEqual([]);
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await page.setViewportSize({ width: 1600, height: 962 });
+  await expect(panel).toContainText('空目录');
+  await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls)).toEqual([]);
+});

@@ -26,3 +26,13 @@ export function articleListSummary(total: number, shown: number, query: string, 
     : filter !== 'all' ? `当前没有${noun}。可以切换为“全部文章”。` : '没有文章可显示。';
   return { count: searching || filter !== 'all' ? `${shown} / ${total}` : String(total), empty };
 }
+
+/** Reveal the inspector with the smallest vertical page scroll, never moving the map sideways. */
+export function panelScrollOffset(top: number, bottom: number, viewportHeight: number): number {
+  const margin = 16;
+  // An oversized inspector cannot fit: start at its heading instead of hiding it above the viewport.
+  if (bottom - top > viewportHeight - margin * 2) return top - margin;
+  if (top < margin) return top - margin;
+  if (bottom > viewportHeight - margin) return bottom - viewportHeight + margin;
+  return 0;
+}

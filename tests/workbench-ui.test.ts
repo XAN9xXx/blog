@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uniqueId, matchesArticle, previewSize, articleListSummary } from '../workbench/ui-helpers';
+import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset } from '../workbench/ui-helpers';
 
 test('UI identifiers are editable safe defaults, including non-Latin titles', () => {
   assert.equal(uniqueId('My first note!', [], 'note-abc'), 'my-first-note');
@@ -37,4 +37,16 @@ test('article list counts and empty messages distinguish search, filters and an 
   assert.match(articleListSummary(10, 0, 'missing', 'ready').empty, /没有匹配的定稿文章.*其他关键词.*切换筛选/);
   assert.equal(articleListSummary(10, 2, 'ssh', 'all').count, '2 / 10');
   assert.match(articleListSummary(0, 0, '', 'all').empty, /新建草稿/);
+});
+
+test('inspector reveal uses minimal vertical scrolling and includes the action at its bottom', () => {
+  assert.equal(panelScrollOffset(911, 1171, 962), 225);
+  assert.equal(panelScrollOffset(400, 660, 962), 0);
+  assert.equal(panelScrollOffset(16, 946, 962), 0);
+  assert.equal(panelScrollOffset(-20, 240, 962), -36);
+  assert.equal(panelScrollOffset(600, 860, 720), 156);
+});
+test('oversized inspectors reveal their heading instead of scrolling past it', () => {
+  assert.equal(panelScrollOffset(500, 1500, 720), 484);
+  assert.equal(panelScrollOffset(16, 1016, 720), 0);
 });
