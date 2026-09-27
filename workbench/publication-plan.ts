@@ -103,7 +103,7 @@ export function createPublicationPlan(input: unknown, baseline: PublicationBasel
   if (drafts.length && visibility !== 'private') issues.push({ code: 'draft-privacy', message: '完整快照含草稿；禁止向公开或可见性未知的仓库上传此快照。' });
   const payload = { version: 1 as const, mode: 'offline-review' as const, canPublish: false as const,
     createdAt: new Date(now).toISOString(), expiresAt: new Date(now + PLAN_TTL_MS).toISOString(),
-    baseCommit: baseline.commit, baseRevision: snapshot.baseRevision, revision: digest(snapshot), candidateDigest: digest(after),
+    baseCommit: baseline.commit, baseRevision: snapshot.baseRevision, revision: digest(snapshot), candidateDigest: digest({ ...after, articles: [...after.articles].sort((a, b) => compareArticlePaths(a.path, b.path)) }),
     checks: { localBaselineContentMatches: true as const, importCommitProvenanceVerified: false as const, remoteChecked: false as const, workingTreeUsed: false as const, visibilityDeclaration: visibility },
     noChanges: files.length === 0, files, articles, directories: directoryChanges(before, after),
     disclosure: { drafts, publicArticles, publicMapEntries: flatten(preview(after, 'public').root).filter(({ node }) => node.type === 'article').length, preservedFileCount: baseline.preservedFileCount },
