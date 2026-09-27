@@ -1,0 +1,27 @@
+[Unit]
+Description=XAN9x isolated content publication reviewer (push disabled)
+After=network.target
+
+[Service]
+Type=simple
+User=xan9x-publisher
+Group=xan9x-workbench
+WorkingDirectory=/opt/xan9x-blog
+Environment=PATH=/opt/node24/bin:/usr/bin:/bin
+ExecStart=/opt/node24/bin/node --import tsx workbench/publisher-server.ts
+Restart=on-failure
+RestartSec=5
+UMask=0077
+RuntimeDirectory=xan9x-publisher
+RuntimeDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/xan9x-publisher /run/xan9x-publisher
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

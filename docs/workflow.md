@@ -344,11 +344,11 @@ npm run workbench:test:browser
 
 ## 发布闭环：离线核对原型与后续设计
 
-目前实现了下面的离线核对原型及其网页入口；其余是后续阶段的实现约束。仍没有真实发布接口、仓库写入权限或部署状态查询，未修改 GitHub Actions、雨云 hook 或 Cloudflare 配置。当前推进顺序为：窄屏地图修复 → 工作台发布流程 → CI/CD 对齐；核对结果不表示 CI/CD 已接通。
+目前实现了离线核对网页、独立执行器内核及只读核对 IPC。已获准安装 content 专用受限凭据；生产入口硬编码关闭推送，并且不注册确认/推送路由。仍没有真实发布按钮、导入基线推进或部署状态查询；未修改 GitHub Actions、雨云仓库 hook 或 Cloudflare 配置。当前推进顺序为：窄屏地图修复 → 工作台发布流程 → CI/CD 对齐；核对结果不表示 CI/CD 已接通。
 
 ### 已实现：只读离线计划器与网页核对
 
-`workbench/publication-plan.ts` 复用现有工作区、文章、目录和公开投影校验；`workbench/publication-git.ts` 只读取本地 Git 对象；`workbench/plan-publication.ts` 提供命令行入口。网页通过已认证的 `GET /api/publication` 查看配置、`POST /api/publication/plan` 生成摘要。两者保持私有且不缓存；POST 受 CSRF 保护，只接受已保存 revision，不接受客户端提供的仓库、SHA 或凭据。仍没有真实发布按钮、网络同步、Git 写入或凭据安装。网页核对和新版地图目前仅在本地 main 验证，不代表 VPS 已更新。
+`workbench/publication-plan.ts` 复用现有工作区、文章、目录和公开投影校验；`workbench/publication-git.ts` 只读取本地 Git 对象；`workbench/plan-publication.ts` 提供命令行入口。网页通过已认证的 `GET /api/publication` 查看配置、`POST /api/publication/plan` 生成摘要。两者保持私有且不缓存；POST 受 CSRF 保护，只接受已保存 revision，不接受客户端提供的仓库、SHA 或凭据。本地离线模式不联网、不写 Git。独立执行器模式可以 fetch 固定远端到专属对象仓库并持久化核对作业，但不修改工作区或远端 refs。部署验收以实际服务、文件校验及接口测试为准，不把本地提交当成线上更新。
 
 ~~~sh
 npm run workbench:plan -- \
@@ -379,9 +379,9 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 
 核对通过独立 Node 子进程运行既有 CLI（单任务、60 秒超时、限制输出），不阻塞 HTTP 事件循环。不会传递服务端密码哈希等环境变量，也不把原始错误路径或 stderr 返回浏览器。核对前后核验 revision；生成期间其他页面保存时丢弃结果。网页仅显示文件/文章变化、目录/关系摘要及公开/草稿范围，不返回冻结正文；结果 15 分钟过期，切换视图或本页重新加载/保存也会清除旧结果。
 
-**边界**：尚不提供 Markdown 正文逐行 diff；尚不创建持久发布作业或推进导入基线。网页仍明确显示“发布通道未接通”。真实执行器、最小权限凭据和首次内容推送仍需单独授权。
+**边界**：尚不提供 Markdown 正文逐行 diff 或推进导入基线。离线 CLI 不持久化作业；独立执行器会保存带 UUID 的冻结核对作业。网页仍明确显示“发布通道未接通”。独立执行器与最小权限凭据已获授权；首次真实内容推送仍须单独确认，不能靠环境变量开启。
 
-测试使用临时 Git 仓库，核对执行前后文件及 Git 元数据未改变，并覆盖过期、并发版本、草稿、目录绑定、文件移动、替换对象、缺失对象不联网等情况。尚未实现远端基线检查、导入来源迁移、持久化确认任务及正文逐行差异界面；它是发布流程的前置核对工具，不是已接通的发布功能。
+测试使用临时 Git 仓库，核对执行前后文件及 Git 元数据未改变，并覆盖过期、并发版本、草稿、目录绑定、文件移动、替换对象、缺失对象不联网等情况。独立执行器另有临时远端与 IPC 测试；导入来源迁移、网页显式确认、基线推进和正文逐行差异界面仍未实现。这是发布流程的前置核对工具，不是已经完成真实端到端发布。
 
 ### 职责与状态
 
@@ -397,15 +397,26 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 1. **准备计划**：接受当前私有 revision，冻结文章与目录；检查 schema、文章引用、主题、路径、大小和公开投影。对内容源/目标远端执行只读同步与基线检查，生成带过期时间的 planId、快照摘要和差异清单，不提交或推送。
 2. **建立可证明的基线**：现有 workspace.json 只有内容摘要 baseRevision，没有 Git commit 和完整原始基线，不能据此宣称具备三方合并能力。需在迁移时核实导入源对应的 content commit，并保存可复核的基线；无法证明来源或远端已前进时，返回“需要核对”，保留私有编辑。首版不自动合并、不强制覆盖、不伪造当前远端为旧编辑的基线。
 3. **显式确认**：显示新增、修改、删除、文件移动、文章入口变化、将进入公开产物的文章，以及仍只进入私有 Git 的草稿。确认绑定 planId、revision 和目标基线；任一变更后旧计划失效，不把未保存表单隐式包含进发布。
-4. **执行提交**：发布执行器在隔离的临时 checkout 中落盘并再次校验。仅提交白名单中的实际变更，把相互依赖的文章/目录放进一个原子提交；无差异则直接返回，不制造空提交。固定仓库和分支白名单，不接受客户端给出的 shell、仓库 URL、任意路径或 ref。
+4. **执行提交**：发布执行器使用独立 Git 对象仓库和每个作业的私有 index，再次校验后通过 hash-object / write-tree / commit-tree 创建候选；不 checkout、不执行 Git hooks 或内容过滤器。仅提交白名单中的实际变更，把相互依赖的文章/目录放进一个原子提交；无差异则直接返回，不制造空提交。固定仓库和分支白名单，不接受客户端给出的 shell、仓库 URL、任意路径或 ref。
 5. **推送**：沿用雨云 content 裸仓库 → GitHub 镜像的既有路径，普通 fast-forward push；远端变化导致拒绝时转为冲突，不能 force-push 或自动 rebase 后悄悄发布。推送结果不确定时先查询远端 commit，不能盲目生成新提交重试。
 6. **保护继续编辑**：确认后冻结的版本 R 与后续私有编辑 R2 分开。发布完成仅记录 R 的结果，不用 R 覆盖 R2，不把新输入标为已上线。基线推进使用单独的版本检查步骤，不能无条件覆盖现有快照。
 
 ### 发布执行器与权限
 
-工作台 Web 服务继续不持有 Git 推送凭据。建议独立的低权限发布执行器通过受权限限制的本地 IPC 接收结构化作业，单作业执行，独立保存状态和审计事件；其凭据只能访问指定 content 仓库。读取构建/部署状态的凭据也留在服务端，不放入浏览器、URL、导出或 site。
+工作台 Web 服务继续不持有 Git 推送凭据。独立的低权限执行器通过受权限限制的 Unix socket 接收核对快照，单作业执行，独立保存状态；其凭据只能访问指定 content 仓库。读取构建/部署状态的凭据也留在服务端，不放入浏览器、URL、导出或 site。
 
-作业必须有持久化 ID 和幂等约束：同一个确认请求只能创建一个作业；断线、重启后从已有记录与远端证据恢复，不从头重推。日志只记录必要的 commit、作业阶段和经过筛选的错误，不记录 token 或完整草稿正文。引入执行器、安装凭据、改变 systemd 权限和首次真实发布都需要单独确认。
+作业必须有持久化 ID 和幂等约束：同一个确认请求只能创建一个作业；断线、重启后从已有记录与远端证据恢复，不从头重推。日志只记录必要的 commit、作业阶段和经过筛选的错误，不记录 token 或完整草稿正文。用户已确认配置独立执行器、专用凭据和必要的 systemd 权限；首次真实发布尚未获准。
+
+### 独立执行器当前落地范围
+
+- Web 服务以 `xan9x-workbench` 运行；执行器以 `xan9x-publisher` 运行，socket 的共享组为 `xan9x-workbench`。socket `0660`、运行目录 `0750`；发布者私有目录 `0700`、私钥 `0600`，Web 用户不能读取密钥。
+- `workbench/xan9x-publisher.service` 与 `workbench/publisher-server.ts` 固定远端 content/main、密钥和已核验的主机公钥路径。远端写作 SSH 别名 `content-origin`，实际地址和端口只放在服务器上 root 管理的 `/etc/xan9x-publisher/ssh_config`（`Host content-origin` 下写 `HostName`、`Port`，root:root 0644），不进入公开仓库；缺少该文件时执行器拒绝启动。客户端只能发送快照，不能传 URL、SSH 命令、仓库路径或 ref。
+- Web 配置 `WORKBENCH_PUBLISHER_SOCKET=/run/xan9x-publisher/review.sock`，与 `WORKBENCH_REVIEW_*` 离线配置互斥。网页入口仍用原来的认证、同源和 CSRF 校验；Unix socket 没有 TCP 监听端口。
+- 生产服务仅开放 `/status` 与 `/prepare`，`publishEnabled` 固定为 false；没有 `/confirm` 或 `/push`。核对会 fetch 并验证远端 main 在读取期间不变，再检查私有快照的导入基线。成功后最多保留 100 个作业，达到上限需人工审阅清理，不自动丢弃未核对状态。
+- RainYun 的专用 authorized_keys 条目使用 `restrict` 和 root 管理的 `content-publisher` forced command，仅接受指定 content 路径的 upload-pack/receive-pack；其他仓库、shell 和端口转发拒绝。`git-shell-commands/no-interactive-login` 保留 Git 账号禁止交互登录的边界。没有改仓库 hooks。
+- 执行器内核已在临时裸仓库验证：无差异不提交、单次 fast-forward、重复确认幂等、远端变化拒绝、草稿完整保留、非托管文件保留、过期/篡改拒绝、拒绝推送后不重试、发布冻结 R 不覆盖后续 R2。内核的确认方法**尚未暴露到生产接口**，后续需先实现基线安全推进与网页显式确认。
+- 异常退出留下 `execution.lock` 时不自动破锁。管理员先停止执行器，读取对应作业阶段、候选 commit 和远端 main 的证据，再决定人工恢复；不能删除锁后盲目重推。`pushing/committed` 的恢复只观察远端，未能证实成功则记为 unknown。
+- 当前已知真实远端仍是旧内容格式，缺少 topology.json / 稳定文章 ID，无法通过发布基线校验。保持明确阻塞，不将基线检查降级；内容迁移及 CI/CD 对齐属于后续阶段。镜像实际可见性、首次内容发布及 Cloudflare 生产验收仍未通过。
 
 ### CI 输入与发布结果的对应关系
 

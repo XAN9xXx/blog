@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { PublisherReview } from './publisher-client';
 import { WorkspaceStore } from './store';
 import { PublicationReview, publicationReviewConfig } from './publication-review';
 import { createWorkbenchServer, originConfig, authModeConfig } from './http';
@@ -12,6 +13,8 @@ if (authMode === 'password' && !passwordHash) throw new Error('未配置 WORKBEN
 const store = new WorkspaceStore(process.env.WORKBENCH_CONTENT_DIR ?? path.resolve(blog, '../xan9x-blog-content'),
   process.env.WORKBENCH_STATE_DIR ?? path.join(blog, '.workbench'));
 const reviewConfig = publicationReviewConfig(process.env);
-const server = createWorkbenchServer({ store, origin, passwordHash, authMode, publicationReview: reviewConfig ? new PublicationReview(reviewConfig) : undefined, assets: path.join(blog, 'workbench/dist') });
+const publisherSocket = process.env.WORKBENCH_PUBLISHER_SOCKET;
+if (publisherSocket && reviewConfig) throw new Error('本地基线核对和独立执行器只能配置一种。');
+const server = createWorkbenchServer({ store, origin, passwordHash, authMode, publicationReview: publisherSocket ? new PublisherReview(publisherSocket) : reviewConfig ? new PublicationReview(reviewConfig) : undefined, assets: path.join(blog, 'workbench/dist') });
 server.listen(port, '127.0.0.1', () => console.log(`Private workbench: ${origin} (loopback only; auth=${authMode}; no publishing configured)`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => server.close(() => process.exit(0)));

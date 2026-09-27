@@ -6,7 +6,7 @@ import { Auth, Sessions } from './auth';
 import { WorkspaceStore } from './store';
 import { parseArticle, preview, WorkbenchError } from './model';
 import { renderMarkdown } from './markdown';
-import type { PublicationReview } from './publication-review';
+import type { PublicationReviewProvider } from './publication-review';
 
 export function originConfig(value: string) {
   const url = new URL(value);
@@ -33,7 +33,7 @@ async function body(request: IncomingMessage, max = 1_000_000): Promise<Record<s
     return result;
   } catch { throw new WorkbenchError('请求必须是 JSON 对象。'); }
 }
-export function createWorkbenchServer(options: { store: WorkspaceStore; origin: string; passwordHash?: string; authMode?: string; assets: string; publicationReview?: Pick<PublicationReview, 'status' | 'create'> }) {
+export function createWorkbenchServer(options: { store: WorkspaceStore; origin: string; passwordHash?: string; authMode?: string; assets: string; publicationReview?: PublicationReviewProvider }) {
   const origin = originConfig(options.origin);
   const mode = authModeConfig(options.authMode, origin);
   const passwordAuth = mode === 'password' ? new Auth(options.passwordHash ?? '') : undefined;
@@ -123,6 +123,6 @@ export function createWorkbenchServer(options: { store: WorkspaceStore; origin: 
       else json({ error: '工作区读写失败，未发布任何内容。请检查服务端文件权限及日志。' }, 500);
     }
   });
-  server.requestTimeout = 15_000; server.headersTimeout = 10_000; server.timeout = 20_000; server.maxHeadersCount = 40;
+  server.requestTimeout = 15_000; server.headersTimeout = 10_000; server.timeout = 190_000; server.maxHeadersCount = 40;
   return server;
 }

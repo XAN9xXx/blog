@@ -6,6 +6,10 @@ import type { WorkspaceStore } from './store';
 import { MAX_PLAN_BYTES, type RepositoryVisibility, type publicationPlanSummary } from './publication-plan';
 
 export type PublicationReviewSummary = ReturnType<typeof publicationPlanSummary>;
+export interface PublicationReviewProvider {
+  status: { configured: boolean; canPublish: boolean; baseCommit?: string; visibilityDeclaration?: string; remoteChecked: boolean; transport?: string };
+  create(store: WorkspaceStore, revision: string): Promise<PublicationReviewSummary>;
+}
 export interface PublicationReviewConfig { repository: string; baseCommit: string; visibility: RepositoryVisibility }
 export function publicationReviewConfig(env: NodeJS.ProcessEnv): PublicationReviewConfig | undefined {
   const repository = env.WORKBENCH_REVIEW_REPOSITORY; const baseCommit = env.WORKBENCH_REVIEW_BASE_COMMIT;

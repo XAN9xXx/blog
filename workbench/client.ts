@@ -281,8 +281,10 @@ function clearPublicationReview() {
 async function loadPublicationConfiguration() {
   clearPublicationReview();
   const button = $<HTMLButtonElement>('review-publication'); button.disabled = true; publicationConfigured = false;
-  const status = await api<{ configured: boolean; baseCommit?: string; visibilityDeclaration?: string }>('/api/publication');
-  $('publication-configuration').textContent = status.configured
+  const status = await api<{ configured: boolean; transport?: string; baseCommit?: string; visibilityDeclaration?: string }>('/api/publication');
+  $('publication-configuration').textContent = status.transport === 'isolated-worker'
+    ? '已连接独立执行器配置 · 核对时读取远端 content/main · 首次真实发布尚未开放；网页服务不持有推送凭据。'
+    : status.configured
     ? `本地基线 ${status.baseCommit!.slice(0, 12)} · 可见性声明：${({ private: '私有', public: '公开', unknown: '未确认' })[status.visibilityDeclaration as 'private' | 'public' | 'unknown']}（未查询远端）`
     : '尚未配置本地 Git 基线。需要在服务器配置只读内容仓库和导入提交，不需要在网页中填写凭据。';
   publicationConfigured = status.configured; button.disabled = !status.configured;
@@ -298,7 +300,7 @@ $('review-publication').addEventListener('click', () => void action(async () => 
   if (remaining <= 0) throw new Error('核对结果已过期，请重新生成。');
   const kind = { added: '新增', modified: '修改', deleted: '删除', moved: '移动' };
   $('publication-version').textContent = `工作区 ${plan.revision.slice(0, 12)} · 基线 ${plan.baseCommit.slice(0, 12)} · 有效至 ${new Date(plan.expiresAt).toLocaleTimeString()}`;
-  $('publication-summary').textContent = plan.noChanges ? '与本地基线没有差异；未发布任何内容。' : `${plan.files.length} 个文件变化，${plan.articles.length} 篇文章变化。仅核对，未发布。`;
+  $('publication-summary').textContent = plan.noChanges ? '与核对基线没有差异；未发布任何内容。' : `${plan.files.length} 个文件变化，${plan.articles.length} 篇文章变化。仅核对，未发布。`;
   reviewList('publication-issues', plan.issues.map(issue => issue.message), '未发现计划器校验问题；这不代表具备发布条件。');
   reviewList('publication-files', plan.files.map(file => `${kind[file.kind]} · ${file.path}`), '没有文件变化。');
   reviewList('publication-articles', plan.articles.map(article => `${kind[article.kind]} · ${article.after?.title ?? article.before?.title} · ${article.before?.path ?? '无'} → ${article.after?.path ?? '无'} · ${article.before ? article.before.draft ? '草稿' : '定稿' : '无'} → ${article.after ? article.after.draft ? '草稿' : '定稿' : '无'}`), '没有文章变化。');
