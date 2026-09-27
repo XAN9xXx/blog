@@ -370,14 +370,8 @@ test('empty directories lead to management instead of a nonexistent index', asyn
 for (const viewport of [{ width: 1651, height: 962 }, { width: 1366, height: 720 }, { width: 390, height: 844 }]) {
   for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     test(`opening an article reveals its title and action at ${viewport.width}x${viewport.height}, motion=${reducedMotion}`, async ({ page }, info) => {
-      // Enter the parent at desktop width: the pinned renderer has a separate
-      // narrow-root layout issue. This regression covers opening the inspector.
-      await page.setViewportSize(viewport.width < 640 ? { width: 1651, height: viewport.height } : viewport);
-      await page.emulateMedia({ reducedMotion }); await login(page);
+      await page.setViewportSize(viewport); await page.emulateMedia({ reducedMotion }); await login(page);
       await view(page, 'preview'); await mapNode(page, 'infrastructure'); await mapNode(page, 'cicd');
-      await page.setViewportSize(viewport);
-      if (viewport.width < 640) await expect(page.locator('#map-preview svg')).toHaveAttribute('viewBox', /^0 0 640 /);
-      await expect(page.locator('#map-preview svg')).not.toHaveClass(/animating/);
       const node = page.locator('#map-preview .node[data-id="hello"]');
       await node.scrollIntoViewIfNeeded();
       const horizontal = await page.locator('.preview-viewport').evaluate(el => el.scrollLeft);
