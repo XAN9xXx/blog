@@ -8,14 +8,15 @@ import { WorkspaceStore } from '../workbench/store';
 import { Auth, Sessions, passwordHash } from '../workbench/auth';
 import { createWorkbenchServer, originConfig, authModeConfig } from '../workbench/http';
 import { renderMarkdown } from '../workbench/markdown';
+import { createPublicationPlan, publicationPlanSummary } from '../workbench/publication-plan';
 const password = 'test-only-workbench-password';
 const hash = passwordHash(password);
-async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example', authMode: 'password' | 'ssh' = 'password', bind = '127.0.0.1') {
+async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example', authMode: 'password' | 'ssh' = 'password', bind = '127.0.0.1', publicationReview?: Parameters<typeof createWorkbenchServer>[0]['publicationReview']) {
   const root = mkdtempSync(path.join(tmpdir(), 'workbench-http-'));
   const content = path.join(root, 'content'); cpSync(path.resolve(import.meta.dirname, '../../xan9x-blog-content'), content, { recursive: true });
   writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>Login only</title>');
   const store = new WorkspaceStore(content, path.join(root, 'private'));
-  const server = createWorkbenchServer({ store, origin, authMode, passwordHash: authMode === 'password' ? await hash : undefined, assets: root });
+  const server = createWorkbenchServer({ store, origin, authMode, publicationReview, passwordHash: authMode === 'password' ? await hash : undefined, assets: root });
   await new Promise<void>(resolve => server.listen(0, bind, resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); });
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No port');
@@ -51,7 +52,7 @@ test('origin configuration disallows insecure remote origins, paths and URL cred
 });
 test('unauthenticated access reveals neither drafts nor exports, and login requires exact origin/host', async t => {
   const f = await fixture(t);
-  for (const route of ['/api/workspace', '/api/export', '/.workbench/workspace.json']) assert.equal((await f.request(route)).status, 401);
+  for (const route of ['/api/workspace', '/api/export', '/api/publication', '/api/publication/plan', '/.workbench/workspace.json']) assert.equal((await f.request(route)).status, 401);
   assert.equal((await f.request('/api/login', { password }, { Origin: 'https://evil.example' })).status, 403);
   assert.equal((await f.request('/api/login', { password }, { Host: 'evil.example' })).status, 403);
   assert.equal((await f.request('/api/login', { password }, { Origin: '' })).status, 403);
@@ -163,4 +164,27 @@ test('automatic sessions retain expiry, revocation and a bounded session count',
   assert.throws(() => sessions.session('workbench_session=' + last.id));
   const active = sessions.createSession(); sessions.logout(active.id);
   assert.throws(() => sessions.session('workbench_session=' + active.id));
+});
+
+test('publication review stays authenticated, CSRF-protected, server-configured and read-only', async t => {
+  const disabled = await fixture(t); await disabled.login();
+  assert.deepEqual(await (await disabled.request('/api/publication')).json(), { configured: false, canPublish: false, remoteChecked: false });
+  assert.equal((await disabled.request('/api/publication/plan', { revision: disabled.store.get().revision })).status, 503);
+  let calls = 0;
+  const f = await fixture(t, 'https://editor.example', 'password', '127.0.0.1', {
+    status: { configured: true, canPublish: false, baseCommit: 'a'.repeat(40), visibilityDeclaration: 'private', remoteChecked: false },
+    async create(store) {
+      calls++; const snapshot = store.get();
+      return publicationPlanSummary(createPublicationPlan(snapshot, { commit: 'a'.repeat(40), headCommit: 'a'.repeat(40), preservedFileCount: 0,
+        files: { 'topology.json': JSON.stringify(snapshot.workspace.topology), ...Object.fromEntries(snapshot.workspace.articles.map(article => [article.path, article.raw])) } }, { visibility: 'private' }));
+    },
+  });
+  await f.login(); const before = f.store.get();
+  assert.equal((await f.request('/api/publication/plan', { revision: before.revision }, { 'X-CSRF-Token': 'wrong' })).status, 403);
+  assert.equal((await f.request('/api/publication/plan', { revision: before.revision, repository: '/tmp/evil' })).status, 400);
+  assert.equal(calls, 0);
+  const response = await f.request('/api/publication/plan', { revision: before.revision }); assert.equal(response.status, 200);
+  const result = await response.json(); assert.equal(result.canPublish, false); assert.equal(result.snapshot, undefined); assert.equal(result.noChanges, true);
+  assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(f.store.get().revision, before.revision);
+  assert.equal((await f.request('/api/publish', {})).status, 404);
 });

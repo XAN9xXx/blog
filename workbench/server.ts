@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { WorkspaceStore } from './store';
+import { PublicationReview, publicationReviewConfig } from './publication-review';
 import { createWorkbenchServer, originConfig, authModeConfig } from './http';
 const blog = path.resolve(import.meta.dirname, '..');
 const origin = process.env.WORKBENCH_ORIGIN ?? 'http://127.0.0.1:4325';
@@ -10,6 +11,7 @@ const passwordHash = process.env.WORKBENCH_PASSWORD_HASH;
 if (authMode === 'password' && !passwordHash) throw new Error('未配置 WORKBENCH_PASSWORD_HASH；拒绝启动未受保护的工作台。');
 const store = new WorkspaceStore(process.env.WORKBENCH_CONTENT_DIR ?? path.resolve(blog, '../xan9x-blog-content'),
   process.env.WORKBENCH_STATE_DIR ?? path.join(blog, '.workbench'));
-const server = createWorkbenchServer({ store, origin, passwordHash, authMode, assets: path.join(blog, 'workbench/dist') });
+const reviewConfig = publicationReviewConfig(process.env);
+const server = createWorkbenchServer({ store, origin, passwordHash, authMode, publicationReview: reviewConfig ? new PublicationReview(reviewConfig) : undefined, assets: path.join(blog, 'workbench/dist') });
 server.listen(port, '127.0.0.1', () => console.log(`Private workbench: ${origin} (loopback only; auth=${authMode}; no publishing configured)`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => server.close(() => process.exit(0)));

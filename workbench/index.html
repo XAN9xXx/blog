@@ -56,7 +56,7 @@
             管理目录</button
           ><button id="view-preview" type="button" aria-pressed="false" aria-controls="preview-view">
             地图预览
-          </button>
+          </button><button id="view-publication" type="button" aria-pressed="false" aria-controls="publication-view">发布核对</button>
         </nav>
         <span id="save-status" role="status">已保存</span>
       </div>
@@ -307,6 +307,20 @@
         <p id="preview-caption" role="status"></p>
         <p id="map-scroll-hint" class="field-help" hidden>窄屏可左右滚动画布；摘要显示在画布下方。</p>
         <div class="preview-viewport"><div id="map-preview"></div></div>
+      </section>
+      <section id="publication-view" hidden aria-label="发布核对">
+        <div class="view-intro"><div><h2>发布核对</h2><p class="muted">仅核对整个已保存工作区，不包含尚未保存的表单。不会提交、推送或触发部署。</p></div>
+          <button id="review-publication" type="button" disabled>核对已保存版本</button></div>
+        <p id="publication-configuration" role="status">正在读取核对配置…</p>
+        <p class="warning">这是本地基线核对，不代表已检查远端。草稿仅允许进入私有仓库；公开站点必须排除草稿。真实发布执行器尚未接通。</p>
+        <div id="publication-result" hidden>
+          <p id="publication-version"></p><p id="publication-summary" role="status"></p>
+          <ul id="publication-issues"></ul>
+          <h3>文件变化</h3><ul id="publication-files"></ul>
+          <h3>文章变化</h3><ul id="publication-articles"></ul>
+          <h3>公开范围</h3><ul id="publication-disclosure"></ul>
+          <details><summary>目录、入口与关联变化</summary><pre id="publication-directories"></pre></details>
+        </div>
       </section>
     </main>
     <footer>内容仅保存在私有工作区 · 发布通道尚未配置</footer>

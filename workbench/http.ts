@@ -6,6 +6,7 @@ import { Auth, Sessions } from './auth';
 import { WorkspaceStore } from './store';
 import { parseArticle, preview, WorkbenchError } from './model';
 import { renderMarkdown } from './markdown';
+import type { PublicationReview } from './publication-review';
 
 export function originConfig(value: string) {
   const url = new URL(value);
@@ -32,7 +33,7 @@ async function body(request: IncomingMessage, max = 1_000_000): Promise<Record<s
     return result;
   } catch { throw new WorkbenchError('请求必须是 JSON 对象。'); }
 }
-export function createWorkbenchServer(options: { store: WorkspaceStore; origin: string; passwordHash?: string; authMode?: string; assets: string }) {
+export function createWorkbenchServer(options: { store: WorkspaceStore; origin: string; passwordHash?: string; authMode?: string; assets: string; publicationReview?: Pick<PublicationReview, 'status' | 'create'> }) {
   const origin = originConfig(options.origin);
   const mode = authModeConfig(options.authMode, origin);
   const passwordAuth = mode === 'password' ? new Auth(options.passwordHash ?? '') : undefined;
@@ -80,6 +81,15 @@ export function createWorkbenchServer(options: { store: WorkspaceStore; origin: 
       if (method === 'GET' && route === '/api/session') { json({ csrf: session.csrf, authMode: mode }); return; }
       if (method === 'POST' && route === '/api/logout') {
         auth.logout(session.id); response.setHeader('Set-Cookie', cookie('', 0)); json({ ok: true }); return;
+      }
+      if (method === 'GET' && route === '/api/publication') {
+        json(options.publicationReview?.status ?? { configured: false, canPublish: false, remoteChecked: false }); return;
+      }
+      if (method === 'POST' && route === '/api/publication/plan') {
+        const value = await body(request, 4096);
+        if (Object.keys(value).length !== 1 || typeof value.revision !== 'string' || !/^[a-f0-9]{64}$/.test(value.revision)) throw new WorkbenchError('仅接受已保存工作区版本，不接受客户端仓库配置。');
+        if (!options.publicationReview) throw new WorkbenchError('尚未配置发布核对基线；保存和地图预览仍可正常使用。', 503);
+        json(await options.publicationReview.create(options.store, value.revision)); return;
       }
       if (method === 'GET' && route === '/api/workspace') { json(view()); return; }
       if (method === 'POST' && route === '/api/command') {

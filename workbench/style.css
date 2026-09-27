@@ -1046,3 +1046,9 @@ footer {
 
 #map-preview .node.empty-directory .dot { stroke-dasharray: 3 3; }
 #map-preview .node.empty-directory .inner-mark { opacity: .3; }
+
+#publication-view { max-width: 1040px; }
+#publication-view li, #publication-version { overflow-wrap: anywhere; }
+#publication-view li { margin: 8px 0; }
+#publication-view h3 { margin-top: 28px; }
+#publication-directories { white-space: pre-wrap; overflow-wrap: anywhere; }

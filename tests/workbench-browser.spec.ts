@@ -429,3 +429,31 @@ test('empty-directory reveal is not repeated by selection restoration or already
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
   expect(await page.evaluate(() => (window as unknown as { revealScrolls: ScrollToOptions[] }).revealScrolls)).toEqual([]);
 });
+
+test('publication review explains missing configuration without offering a fake publish action', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/publication', route => route.fulfill({ json: { configured: false, canPublish: false, remoteChecked: false } }));
+  await page.locator('#view-publication').click();
+  await expect(page.locator('#publication-configuration')).toContainText('尚未配置');
+  await expect(page.locator('#review-publication')).toBeDisabled();
+  await expect(page.locator('#publication-result')).toBeHidden();
+  await expect(page.locator('#publish-status')).toHaveText('发布通道未接通');
+});
+test('configured publication review shows saved differences and draft scope without posting content', async ({ page }) => {
+  test.skip(process.env.WORKBENCH_TEST_REVIEW !== '1', 'Requires the temporary read-only Git fixture.');
+  await login(page); await createDraft(page, '核对草稿 <img src=x>');
+  let commands=0; page.on('request', request => { if (request.url().endsWith('/api/command') || request.url().endsWith('/api/publish')) commands++; });
+  await page.locator('#view-publication').click(); await expect(page.locator('#review-publication')).toBeEnabled();
+  const response=page.waitForResponse(response=>response.url().endsWith('/api/publication/plan'));
+  await page.locator('#review-publication').click();
+  expect((await (await response).json()).snapshot).toBeUndefined();
+  await expect(page.locator('#publication-result')).toBeVisible();
+  await expect(page.locator('#publication-summary')).toContainText('仅核对，未发布');
+  await expect(page.locator('#publication-disclosure')).toContainText('仅私有 Git · 草稿 核对草稿 <img src=x>');
+  await expect(page.locator('#publication-result img')).toHaveCount(0);
+  expect(commands).toBe(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.locator('#view-articles').click(); await page.locator('#view-publication').click();
+  await expect(page.locator('#publication-result')).toBeHidden();
+});

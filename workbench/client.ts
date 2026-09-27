@@ -3,15 +3,17 @@ import type { TopologyDocument } from '@xan9x/topology/schema';
 import '@xan9x/topology/style.css';
 import './style.css';
 import type { Workspace, Command } from './model';
+import type { PublicationReviewSummary } from './publication-review';
 import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset } from './ui-helpers';
 
 interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[] } }
 interface State { revision: string; sourceChanged: boolean; workspace: Workspace; articles: Article[] }
-type View = 'articles' | 'directory' | 'preview';
+type View = 'articles' | 'directory' | 'preview' | 'publication';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = (id: string) => $<HTMLFormElement>(id);
 const field = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLInputElement;
 const select = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLSelectElement;
+let publicationConfigured = false;
 let authMode: 'password' | 'ssh' = 'password';
 let csrf = ''; let state: State; let selectedNode = ''; let selectedArticle: string | undefined;
 let creating = false; let pending = false; let view: View = 'articles';
@@ -58,6 +60,7 @@ async function action(run: () => Promise<void>) {
   finally {
     controls.forEach((control, i) => control.disabled = disabled[i]!); pending = false; document.body.removeAttribute('aria-busy');
     if (state) ($('bind-form').querySelector('button[type=submit]') as HTMLButtonElement).disabled = !state.articles.length;
+    $<HTMLButtonElement>('review-publication').disabled = !publicationConfigured;
     updateStatus();
     if (focused?.isConnected && focused.getClientRects().length) focused.focus({ preventScroll: true });
   }
@@ -81,7 +84,7 @@ function selectOptions(target: HTMLSelectElement, options: { value: string; text
 function articleLabel(id: string) { const a = state.articles.find(a => a.id === id); return a ? `${a.data.title}${a.data.draft ? ' · 草稿' : ''}` : id; }
 function setView(next: View) {
   view = next;
-  for (const name of ['articles', 'directory', 'preview'] as const) { $(name + '-view').hidden = name !== next; $('view-' + name).setAttribute('aria-pressed', String(name === next)); }
+  for (const name of ['articles', 'directory', 'preview', 'publication'] as const) { $(name + '-view').hidden = name !== next; $('view-' + name).setAttribute('aria-pressed', String(name === next)); }
 }
 function updateArticleList() {
   const query = $<HTMLInputElement>('article-search').value;
@@ -224,6 +227,7 @@ function renderTree() {
   const list = document.createElement('ul'); list.append(tree(state.workspace.topology.document.root)); $('tree').replaceChildren(list);
 }
 function render() {
+  clearPublicationReview();
   $('connecting').hidden = true; $('session-closed').hidden = true; $('login').hidden = true; $('main').hidden = false; $('account').hidden = false;
   $('access-mode').textContent = authMode === 'ssh' ? 'SSH 免密' : '私有';
   $('logout').textContent = authMode === 'ssh' ? '结束当前会话' : '退出';
@@ -263,11 +267,50 @@ form('login-form').addEventListener('submit', event => { event.preventDefault();
 });
 $('logout').addEventListener('click', () => { if (!discard()) return; void action(async () => { await api('/api/logout', {}); clearDirty(); if (authMode === 'ssh') location.assign('/?session=closed'); else location.reload(); }); });
 $('reload').addEventListener('click', () => { if (!discard()) return; void action(async () => { state = await api<State>('/api/workspace'); clearDirty(); creating = false; map?.destroy(); map = undefined; mapDocument = undefined; render(); $<HTMLDetailsElement>('account').querySelector('details')!.open = false; if (view === 'preview') await showMap(mapMode); message('已重新读取私有快照。'); }); });
-for (const next of ['articles', 'directory', 'preview'] as const) $('view-' + next).addEventListener('click', () => {
+for (const next of ['articles', 'directory', 'preview', 'publication'] as const) $('view-' + next).addEventListener('click', () => {
   if (next === view || pending || !discard()) return;
   clearDirty(); creating = false; render(); setView(next);
   if (next === 'preview') void action(() => showMap(mapMode));
+  if (next === 'publication') void action(loadPublicationConfiguration);
 });
+let reviewExpiry: ReturnType<typeof setTimeout> | undefined;
+function clearPublicationReview() {
+  clearTimeout(reviewExpiry); $('publication-result').hidden = true;
+  for (const id of ['publication-version', 'publication-summary', 'publication-issues', 'publication-files', 'publication-articles', 'publication-disclosure', 'publication-directories']) $(id).replaceChildren();
+}
+async function loadPublicationConfiguration() {
+  clearPublicationReview();
+  const button = $<HTMLButtonElement>('review-publication'); button.disabled = true; publicationConfigured = false;
+  const status = await api<{ configured: boolean; baseCommit?: string; visibilityDeclaration?: string }>('/api/publication');
+  $('publication-configuration').textContent = status.configured
+    ? `本地基线 ${status.baseCommit!.slice(0, 12)} · 可见性声明：${({ private: '私有', public: '公开', unknown: '未确认' })[status.visibilityDeclaration as 'private' | 'public' | 'unknown']}（未查询远端）`
+    : '尚未配置本地 Git 基线。需要在服务器配置只读内容仓库和导入提交，不需要在网页中填写凭据。';
+  publicationConfigured = status.configured; button.disabled = !status.configured;
+}
+function reviewList(id: string, lines: string[], empty: string) {
+  $(id).replaceChildren(...(lines.length ? lines : [empty]).map(text => { const item = document.createElement('li'); item.textContent = text; return item; }));
+}
+$('review-publication').addEventListener('click', () => void action(async () => {
+  clearPublicationReview();
+  const plan = await api<PublicationReviewSummary>('/api/publication/plan', { revision: state.revision });
+  if (state.revision !== plan.revision) throw new Error('本页版本已变化，请重新核对。');
+  const remaining = Date.parse(plan.expiresAt) - Date.now();
+  if (remaining <= 0) throw new Error('核对结果已过期，请重新生成。');
+  const kind = { added: '新增', modified: '修改', deleted: '删除', moved: '移动' };
+  $('publication-version').textContent = `工作区 ${plan.revision.slice(0, 12)} · 基线 ${plan.baseCommit.slice(0, 12)} · 有效至 ${new Date(plan.expiresAt).toLocaleTimeString()}`;
+  $('publication-summary').textContent = plan.noChanges ? '与本地基线没有差异；未发布任何内容。' : `${plan.files.length} 个文件变化，${plan.articles.length} 篇文章变化。仅核对，未发布。`;
+  reviewList('publication-issues', plan.issues.map(issue => issue.message), '未发现计划器校验问题；这不代表具备发布条件。');
+  reviewList('publication-files', plan.files.map(file => `${kind[file.kind]} · ${file.path}`), '没有文件变化。');
+  reviewList('publication-articles', plan.articles.map(article => `${kind[article.kind]} · ${article.after?.title ?? article.before?.title} · ${article.before?.path ?? '无'} → ${article.after?.path ?? '无'} · ${article.before ? article.before.draft ? '草稿' : '定稿' : '无'} → ${article.after ? article.after.draft ? '草稿' : '定稿' : '无'}`), '没有文章变化。');
+  reviewList('publication-disclosure', [
+    ...plan.disclosure.publicArticles.map(article => `公开候选 · ${article.title}（${article.id}）`),
+    ...plan.disclosure.drafts.map(article => `仅私有 Git · 草稿 ${article.title}（${article.id}）`),
+    `公开地图文章入口 ${plan.disclosure.publicMapEntries} 个；保留 ${plan.disclosure.preservedFileCount} 个不由工作台管理的文件。`,
+  ], '没有文章。');
+  $('publication-directories').textContent = JSON.stringify(plan.directories, null, 2);
+  $('publication-result').hidden = false;
+  reviewExpiry = setTimeout(() => { clearPublicationReview(); $('publication-configuration').textContent = '核对结果已过期，请重新生成；没有内容被发布。'; }, remaining);
+}));
 $('toggle-library').addEventListener('click', () => toggleLibrary(!$('article-library').classList.contains('is-open')));
 $('mobile-new-article').addEventListener('click', newArticle);
 $('new-article').addEventListener('click', newArticle); $('empty-new-article').addEventListener('click', newArticle);
