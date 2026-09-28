@@ -74,6 +74,17 @@ export class WorkspaceStore {
     try { sourceChanged = hash(this.source()) !== value.baseRevision; } catch { /* Keep private edits readable if the source becomes invalid. */ }
     return { ...value, revision: hash(value), sourceChanged };
   }
+  /** Change only the accepted Git baseline; newer saved edits remain byte-for-byte intact. */
+  advancePublicationBase(expected: string, next: string) {
+    if (![expected, next].every(value => /^[a-f0-9]{64}$/.test(value))) throw new WorkbenchError('无效的发布基线。');
+    return this.lock(() => {
+      const current = this.read();
+      if (current.baseRevision === next) return this.get(); // Recovery after write succeeded but receipt was lost.
+      if (current.baseRevision !== expected) throw new WorkbenchError('工作区基线已变化，不能覆盖；Git 结果保留，需人工核对。', 409);
+      this.write({ ...current, baseRevision: next });
+      return this.get();
+    });
+  }
   save(revision: string, command: unknown) {
     return this.lock(() => {
       const current = this.read();

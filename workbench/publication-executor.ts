@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { jobSummarySchema, type PublicationJob } from './publication-state';
 import { randomUUID } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
@@ -8,7 +9,7 @@ import { WorkbenchError } from './model';
 import { assertPublicationPlanCurrent, createPublicationPlan, parsePublicationSnapshot, publicationPlanSummary, type PublicationPlan } from './publication-plan';
 import { readPublicationBaseline } from './publication-git';
 
-type Phase = 'prepared' | 'committing' | 'committed' | 'pushing' | 'pushed' | 'no-changes' | 'conflict' | 'unknown';
+type Phase = 'prepared' | 'committing' | 'committed' | 'pushing' | 'pushed' | 'no-changes' | 'conflict' | 'unknown' | 'expired';
 interface Job { version: 1; id: string; phase: Phase; plan: PublicationPlan; commit?: string }
 export interface ExecutorConfig { directory: string; remote: string; sshCommand?: string; publishEnabled: boolean }
 /** Dedicated worker only. Fixed administrator config, private objects/indexes, no working-tree checkout or hooks. */
@@ -57,13 +58,14 @@ export class PublicationExecutor {
   }
   private load(id: string): Job {
     const job = JSON.parse(readFileSync(this.file(id), 'utf8')) as Job;
-    if (job.version !== 1 || job.id !== id || !['prepared','committing','committed','pushing','pushed','no-changes','conflict','unknown'].includes(job.phase)) throw new WorkbenchError('发布作业损坏，拒绝继续。', 409);
+    if (job.version !== 1 || job.id !== id || !['prepared','committing','committed','pushing','pushed','no-changes','conflict','unknown','expired'].includes(job.phase)) throw new WorkbenchError('发布作业损坏，拒绝继续。', 409);
     return job;
   }
-  private summary(job: Job) {
-    return { id: job.id, phase: job.phase, commit: job.commit ?? null, revision: job.plan.revision,
+  get publishEnabled() { return this.config.publishEnabled; }
+  private summary(job: Job): PublicationJob {
+    return jobSummarySchema.parse({ id: job.id, planId: job.plan.planId, expiresAt: job.plan.expiresAt, phase: job.phase, commit: job.commit ?? null, revision: job.plan.revision,
       baseRevision: job.plan.baseRevision, candidateDigest: job.plan.candidateDigest, baseCommit: job.plan.baseCommit,
-      publishEnabled: this.config.publishEnabled, deployed: false as const };
+      publishEnabled: this.config.publishEnabled, deployed: false as const });
   }
   private locked<T>(run: () => T): T {
     const file = path.join(this.config.directory, 'execution.lock'); let fd: number;
@@ -80,11 +82,23 @@ export class PublicationExecutor {
     });
   }
   get(id: string) { return this.summary(this.load(id)); }
+  /** Observe an interrupted attempt, never repeat a commit or push. A crash lock still requires manual recovery. */
+  reconcile(id: string) {
+    return this.locked(() => {
+      const job = this.load(id);
+      if (['committing', 'committed', 'pushing', 'unknown'].includes(job.phase)) {
+        try { job.phase = job.commit && this.remoteHead() === job.commit ? 'pushed' : 'unknown'; }
+        catch { job.phase = 'unknown'; }
+        this.save(job);
+      }
+      return this.summary(job);
+    });
+  }
   confirm(id: string, revision: string) {
     return this.locked(() => {
       const job = this.load(id);
       if (job.plan.revision !== revision) throw new WorkbenchError('确认版本与冻结作业不一致。', 409);
-      if (['pushed','no-changes','conflict','unknown'].includes(job.phase)) return this.summary(job);
+      if (['pushed','no-changes','conflict','unknown','expired'].includes(job.phase)) return this.summary(job);
       if (job.phase !== 'prepared') {
         // A restart may have interrupted a push. Observe only; never repeat it.
         try { job.phase = job.commit && this.remoteHead() === job.commit ? 'pushed' : 'unknown'; }
@@ -94,6 +108,7 @@ export class PublicationExecutor {
       if (!this.config.publishEnabled) throw new WorkbenchError('首次真实发布尚未获准；执行器保持只读核对，未提交或推送。', 403);
       const baseline = this.baseline();
       if (baseline.commit !== job.plan.baseCommit) { job.phase = 'conflict'; this.save(job); return this.summary(job); }
+      if (Date.now() >= Date.parse(job.plan.expiresAt)) { job.phase = 'expired'; this.save(job); return this.summary(job); }
       assertPublicationPlanCurrent(job.plan, job.plan.snapshot, baseline, 'private');
       if (job.plan.noChanges) { job.phase = 'no-changes'; job.commit = baseline.commit; this.save(job); return this.summary(job); }
       job.phase = 'committing'; this.save(job);

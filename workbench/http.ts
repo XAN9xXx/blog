@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 import { Auth, Sessions } from './auth';
 import { WorkspaceStore } from './store';
 import { parseArticle, preview, WorkbenchError } from './model';
+import { confirmationSchema } from './publication-state';
 import { renderMarkdown } from './markdown';
 import type { PublicationReviewProvider } from './publication-review';
 
@@ -83,13 +84,27 @@ export function createWorkbenchServer(options: { store: WorkspaceStore; origin: 
         auth.logout(session.id); response.setHeader('Set-Cookie', cookie('', 0)); json({ ok: true }); return;
       }
       if (method === 'GET' && route === '/api/publication') {
-        json(options.publicationReview?.status ?? { configured: false, canPublish: false, remoteChecked: false }); return;
+        json(await options.publicationReview?.availability?.() ?? options.publicationReview?.status ?? { configured: false, canPublish: false, remoteChecked: false }); return;
       }
       if (method === 'POST' && route === '/api/publication/plan') {
         const value = await body(request, 4096);
         if (Object.keys(value).length !== 1 || typeof value.revision !== 'string' || !/^[a-f0-9]{64}$/.test(value.revision)) throw new WorkbenchError('仅接受已保存工作区版本，不接受客户端仓库配置。');
         if (!options.publicationReview) throw new WorkbenchError('尚未配置发布核对基线；保存和地图预览仍可正常使用。', 503);
         json(await options.publicationReview.create(options.store, value.revision)); return;
+      }
+      if (method === 'GET' && route === '/api/publication/job') {
+        json({ progress: options.publicationReview?.progress?.(options.store) ?? null }); return;
+      }
+      if (method === 'POST' && route === '/api/publication/confirm') {
+        if (!options.publicationReview?.confirm) throw new WorkbenchError('未开放发布确认。', 404);
+        const input = confirmationSchema.parse(await body(request, 4096));
+        json({ progress: await options.publicationReview.confirm(options.store, input) }); return;
+      }
+      if (method === 'POST' && route === '/api/publication/reconcile') {
+        const input = await body(request, 4096);
+        if (Object.keys(input).length) throw new WorkbenchError('状态核对不接受仓库或作业覆盖参数。');
+        if (!options.publicationReview?.reconcile) throw new WorkbenchError('未配置发布执行器。', 404);
+        json({ progress: await options.publicationReview.reconcile(options.store) }); return;
       }
       if (method === 'GET' && route === '/api/workspace') { json(view()); return; }
       if (method === 'POST' && route === '/api/command') {

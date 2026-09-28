@@ -1,3 +1,4 @@
+import type { PublicationConfirmation, PublicationJob, PublicationProgress } from './publication-state';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -5,10 +6,14 @@ import { WorkbenchError } from './model';
 import type { WorkspaceStore } from './store';
 import { MAX_PLAN_BYTES, type RepositoryVisibility, type publicationPlanSummary } from './publication-plan';
 
-export type PublicationReviewSummary = ReturnType<typeof publicationPlanSummary>;
+export type PublicationReviewSummary = ReturnType<typeof publicationPlanSummary> & { execution?: PublicationJob };
 export interface PublicationReviewProvider {
   status: { configured: boolean; canPublish: boolean; baseCommit?: string; visibilityDeclaration?: string; remoteChecked: boolean; transport?: string };
   create(store: WorkspaceStore, revision: string): Promise<PublicationReviewSummary>;
+  availability?(): Promise<PublicationReviewProvider['status']>;
+  progress?(store: WorkspaceStore): PublicationProgress | null;
+  confirm?(store: WorkspaceStore, input: PublicationConfirmation): Promise<PublicationProgress>;
+  reconcile?(store: WorkspaceStore): Promise<PublicationProgress | null>;
 }
 export interface PublicationReviewConfig { repository: string; baseCommit: string; visibility: RepositoryVisibility }
 export function publicationReviewConfig(env: NodeJS.ProcessEnv): PublicationReviewConfig | undefined {

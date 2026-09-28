@@ -52,7 +52,7 @@ test('origin configuration disallows insecure remote origins, paths and URL cred
 });
 test('unauthenticated access reveals neither drafts nor exports, and login requires exact origin/host', async t => {
   const f = await fixture(t);
-  for (const route of ['/api/workspace', '/api/export', '/api/publication', '/api/publication/plan', '/.workbench/workspace.json']) assert.equal((await f.request(route)).status, 401);
+  for (const route of ['/api/workspace', '/api/export', '/api/publication', '/api/publication/plan', '/api/publication/job', '/api/publication/confirm', '/api/publication/reconcile', '/.workbench/workspace.json']) assert.equal((await f.request(route)).status, 401);
   assert.equal((await f.request('/api/login', { password }, { Origin: 'https://evil.example' })).status, 403);
   assert.equal((await f.request('/api/login', { password }, { Host: 'evil.example' })).status, 403);
   assert.equal((await f.request('/api/login', { password }, { Origin: '' })).status, 403);
@@ -187,4 +187,25 @@ test('publication review stays authenticated, CSRF-protected, server-configured 
   const result = await response.json(); assert.equal(result.canPublish, false); assert.equal(result.snapshot, undefined); assert.equal(result.noChanges, true);
   assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(f.store.get().revision, before.revision);
   assert.equal((await f.request('/api/publish', {})).status, 404);
+});
+
+test('publication confirmation and recovery require authentication, CSRF, exact frozen identity and explicit acknowledgement', async t => {
+  let confirms = 0; let reconciles = 0;
+  const provider: NonNullable<Parameters<typeof createWorkbenchServer>[0]['publicationReview']> = {
+    status: { configured: true, canPublish: false, remoteChecked: false },
+    async create() { throw new Error('unused'); },
+    async confirm() { confirms++; throw new Error('test-only confirmed'); },
+    async reconcile() { reconciles++; return null; }, progress() { return null; },
+  };
+  const f = await fixture(t, 'https://editor.example', 'password', '127.0.0.1', provider);
+  const value = { id: '11111111-1111-4111-8111-111111111111', planId: 'a'.repeat(64), revision: 'b'.repeat(64), baseCommit: 'c'.repeat(40), acknowledgePrivateSnapshot: true };
+  assert.equal((await f.request('/api/publication/confirm', value)).status, 401); await f.login();
+  assert.equal((await f.request('/api/publication/confirm', value, { 'X-CSRF-Token': 'wrong' })).status, 403);
+  assert.equal((await f.request('/api/publication/confirm', value, { Origin: 'https://attacker.invalid' })).status, 403);
+  for (const invalid of [{ ...value, acknowledgePrivateSnapshot: false }, { ...value, remote: 'other' }, { ...value, revision: 'main' }]) assert.equal((await f.request('/api/publication/confirm', invalid)).status, 400);
+  assert.equal(confirms, 0); await f.request('/api/publication/confirm', value); assert.equal(confirms, 1);
+  assert.equal((await f.request('/api/publication/reconcile', {}, { 'X-CSRF-Token': 'wrong' })).status, 403);
+  assert.equal((await f.request('/api/publication/reconcile', { id: value.id })).status, 400);
+  assert.equal((await f.request('/api/publication/reconcile', {})).status, 200); assert.equal(reconciles, 1);
+  assert.deepEqual(await (await f.request('/api/publication/job')).json(), { progress: null });
 });
