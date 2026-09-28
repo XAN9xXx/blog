@@ -413,7 +413,7 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 - `workbench/xan9x-publisher.service` 与 `workbench/publisher-server.ts` 固定远端 content/main、密钥和已核验的主机公钥路径。远端写作 SSH 别名 `content-origin`，实际地址和端口只放在服务器上 root 管理的 `/etc/xan9x-publisher/ssh_config`（`Host content-origin` 下写 `HostName`、`Port`，root:root 0644），不进入公开仓库；缺少该文件时执行器拒绝启动。客户端只能发送快照，不能传 URL、SSH 命令、仓库路径或 ref。
 - Web 配置 `WORKBENCH_PUBLISHER_SOCKET=/run/xan9x-publisher/review.sock`，与 `WORKBENCH_REVIEW_*` 离线配置互斥。网页入口仍用原来的认证、同源和 CSRF 校验；Unix socket 没有 TCP 监听端口。
 - 生产服务仅开放 `/status` 与 `/prepare`，`publishEnabled` 固定为 false；没有 `/confirm` 或 `/push`。核对会 fetch 并验证远端 main 在读取期间不变，再检查私有快照的导入基线。成功后最多保留 100 个作业，达到上限需人工审阅清理，不自动丢弃未核对状态。
-- RainYun 的专用 authorized_keys 条目使用 `restrict` 和 root 管理的 `content-publisher` forced command，仅接受指定 content 路径的 upload-pack/receive-pack；其他仓库、shell 和端口转发拒绝。`git-shell-commands/no-interactive-login` 保留 Git 账号禁止交互登录的边界。没有改仓库 hooks。
+- RainYun 的专用 authorized_keys 条目使用 `restrict` 和 root 管理的 `content-publisher` forced command，仅接受指定 content 路径的 upload-pack/receive-pack；其他仓库、shell 和端口转发拒绝。`git-shell-commands/no-interactive-login` 保留 Git 账号禁止交互登录的边界。该 forced command 以 `receive.denyNonFastForwards`、`receive.denyDeletes` 运行 receive-pack：执行器密钥只能快进更新、不能删除引用；仓库配置保持默认，所有者自己的密钥仍可强推。没有改仓库 hooks。
 - 执行器内核已在临时裸仓库验证：无差异不提交、单次 fast-forward、重复确认幂等、远端变化拒绝、草稿完整保留、非托管文件保留、过期/篡改拒绝、拒绝推送后不重试、发布冻结 R 不覆盖后续 R2。内核的确认方法**尚未暴露到生产接口**，后续需先实现基线安全推进与网页显式确认。
 - 异常退出留下 `execution.lock` 时不自动破锁。管理员先停止执行器，读取对应作业阶段、候选 commit 和远端 main 的证据，再决定人工恢复；不能删除锁后盲目重推。`pushing/committed` 的恢复只观察远端，未能证实成功则记为 unknown。
 - 当前已知真实远端仍是旧内容格式，缺少 topology.json / 稳定文章 ID，无法通过发布基线校验。保持明确阻塞，不将基线检查降级；内容迁移及 CI/CD 对齐属于后续阶段。镜像实际可见性、首次内容发布及 Cloudflare 生产验收仍未通过。
