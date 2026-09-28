@@ -61,7 +61,7 @@
         <span id="save-status" role="status">已保存</span>
       </div>
       <p id="source-warning" class="warning" hidden>
-        内容源已变化。你的私有编辑仍然保留；发布前需要人工核对合并。
+        导入源与当前内容基线不同（也可能是发布后源目录尚未更新）。私有编辑仍然保留，不会自动重新导入或覆盖。
       </p>
       <section id="articles-view" class="article-layout" aria-label="文章工作区">
         <div class="mobile-library-controls">
@@ -309,10 +309,10 @@
         <div class="preview-viewport"><div id="map-preview"></div></div>
       </section>
       <section id="publication-view" hidden aria-label="发布核对">
-        <div class="view-intro"><div><h2>发布核对</h2><p class="muted">仅核对整个已保存工作区，不包含尚未保存的表单。不会提交、推送或触发部署。</p></div>
+        <div class="view-intro"><div><h2>发布核对</h2><p class="muted">先核对整个已保存工作区，再显式确认。核对本身不会提交或推送，不包含尚未保存的表单。</p></div>
           <button id="review-publication" type="button" disabled>核对已保存版本</button></div>
         <p id="publication-configuration" role="status">正在读取核对配置…</p>
-        <p class="warning">核对不等于发布，也不代表镜像和部署已验证。草稿仅允许进入私有仓库；公开站点必须排除草稿。当前未开放真实推送。</p>
+        <p class="warning">核对不等于发布，也不代表镜像和部署已验证。草稿仅允许进入私有仓库；公开站点必须排除草稿。<span id="publication-gate">当前未开放真实推送。</span></p>
         <div id="publication-result" hidden>
           <p id="publication-version"></p><p id="publication-summary" role="status"></p>
           <ul id="publication-issues"></ul>
@@ -320,9 +320,19 @@
           <h3>文章变化</h3><ul id="publication-articles"></ul>
           <h3>公开范围</h3><ul id="publication-disclosure"></ul>
           <details><summary>目录、入口与关联变化</summary><pre id="publication-directories"></pre></details>
+          <section id="publication-confirmation" class="settings" hidden aria-label="确认推送">
+            <h3>确认推送已核对版本</h3><p id="publication-target"></p>
+            <label class="checkbox"><input id="publication-acknowledge" type="checkbox" />我确认将整个已保存版本（包括草稿）提交到私有 content 仓库及私有镜像。推送成功不等于网站已上线。</label>
+            <div class="actions"><button id="confirm-publication" type="button" disabled>确认推送此版本</button><button id="cancel-publication" type="button">取消本次核对</button></div>
+          </section>
         </div>
+        <section id="publication-job" class="settings" hidden aria-label="发布作业状态">
+          <h3>最近确认的发布作业</h3><p id="publication-job-status" role="status"></p><p id="publication-job-detail"></p>
+          <p class="field-help">这里只核实 Git 和私有工作区基线；未接入 CI/CD 部署结果。结果不确定时只查询，不重新推送。</p>
+        </section>
+        <button id="refresh-publication" type="button" hidden>查询作业状态</button>
       </section>
     </main>
-    <footer>内容仅保存在私有工作区 · 发布通道尚未配置</footer>
+    <footer>普通保存只写私有工作区 · Git 推送和网站上线是独立状态</footer>
   </body>
 </html>

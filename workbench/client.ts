@@ -3,6 +3,7 @@ import type { TopologyDocument } from '@xan9x/topology/schema';
 import '@xan9x/topology/style.css';
 import './style.css';
 import type { Workspace, Command } from './model';
+import type { PublicationProgress } from './publication-state';
 import type { PublicationReviewSummary } from './publication-review';
 import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset } from './ui-helpers';
 
@@ -14,6 +15,9 @@ const form = (id: string) => $<HTMLFormElement>(id);
 const field = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLInputElement;
 const select = (id: string, name: string) => form(id).elements.namedItem(name) as HTMLSelectElement;
 let publicationConfigured = false;
+let publicationCanPublish = false;
+let publicationInFlight = false;
+let reviewedPlan: PublicationReviewSummary | undefined;
 let authMode: 'password' | 'ssh' = 'password';
 let csrf = ''; let state: State; let selectedNode = ''; let selectedArticle: string | undefined;
 let creating = false; let pending = false; let view: View = 'articles';
@@ -60,7 +64,8 @@ async function action(run: () => Promise<void>) {
   finally {
     controls.forEach((control, i) => control.disabled = disabled[i]!); pending = false; document.body.removeAttribute('aria-busy');
     if (state) ($('bind-form').querySelector('button[type=submit]') as HTMLButtonElement).disabled = !state.articles.length;
-    $<HTMLButtonElement>('review-publication').disabled = !publicationConfigured;
+    $<HTMLButtonElement>('review-publication').disabled = !publicationConfigured || publicationInFlight;
+    updatePublicationConfirmation();
     updateStatus();
     if (focused?.isConnected && focused.getClientRects().length) focused.focus({ preventScroll: true });
   }
@@ -275,19 +280,23 @@ for (const next of ['articles', 'directory', 'preview', 'publication'] as const)
 });
 let reviewExpiry: ReturnType<typeof setTimeout> | undefined;
 function clearPublicationReview() {
-  clearTimeout(reviewExpiry); $('publication-result').hidden = true;
+  clearTimeout(reviewExpiry); reviewedPlan = undefined; $('publication-result').hidden = true;
+  $('publication-confirmation').hidden = true; $<HTMLInputElement>('publication-acknowledge').checked = false; updatePublicationConfirmation();
   for (const id of ['publication-version', 'publication-summary', 'publication-issues', 'publication-files', 'publication-articles', 'publication-disclosure', 'publication-directories']) $(id).replaceChildren();
 }
 async function loadPublicationConfiguration() {
   clearPublicationReview();
   const button = $<HTMLButtonElement>('review-publication'); button.disabled = true; publicationConfigured = false;
-  const status = await api<{ configured: boolean; transport?: string; baseCommit?: string; visibilityDeclaration?: string }>('/api/publication');
+  const status = await api<{ configured: boolean; canPublish: boolean; transport?: string; baseCommit?: string; visibilityDeclaration?: string }>('/api/publication');
   $('publication-configuration').textContent = status.transport === 'isolated-worker'
-    ? '已配置独立执行器 · 核对时读取远端 content/main · 首次真实发布尚未开放；网页服务不持有推送凭据。'
+    ? `已配置独立执行器 · 核对时读取远端 content/main · ${status.canPublish ? '仅显式确认后推送私有 Git' : '首次真实发布尚未开放'}；网页服务不持有推送凭据。`
     : status.configured
     ? `本地基线 ${status.baseCommit!.slice(0, 12)} · 可见性声明：${({ private: '私有', public: '公开', unknown: '未确认' })[status.visibilityDeclaration as 'private' | 'public' | 'unknown']}（未查询远端）`
     : '尚未配置本地 Git 基线。需要在服务器配置只读内容仓库和导入提交，不需要在网页中填写凭据。';
-  publicationConfigured = status.configured; button.disabled = !status.configured;
+  publicationConfigured = status.configured; publicationCanPublish = status.canPublish; button.disabled = !status.configured;
+  $('publication-gate').textContent = status.canPublish ? '仅在下方核对并显式确认后才会推送。' : '当前未开放真实推送。';
+  $('refresh-publication').hidden = status.transport !== 'isolated-worker';
+  if (status.transport === 'isolated-worker') displayPublicationProgress((await api<{ progress: PublicationProgress | null }>('/api/publication/job')).progress);
 }
 function reviewList(id: string, lines: string[], empty: string) {
   $(id).replaceChildren(...(lines.length ? lines : [empty]).map(text => { const item = document.createElement('li'); item.textContent = text; return item; }));
@@ -310,8 +319,71 @@ $('review-publication').addEventListener('click', () => void action(async () => 
     `公开地图文章入口 ${plan.disclosure.publicMapEntries} 个；保留 ${plan.disclosure.preservedFileCount} 个不由工作台管理的文件。`,
   ], '没有文章。');
   $('publication-directories').textContent = JSON.stringify(plan.directories, null, 2);
+  reviewedPlan = plan;
   $('publication-result').hidden = false;
+  $('publication-confirmation').hidden = !publicationCanPublish || !plan.execution?.publishEnabled;
+  $('publication-target').textContent = `目标：私有 content/main · 基线 ${plan.baseCommit.slice(0, 12)} · 工作区 ${plan.revision.slice(0, 12)}。${plan.noChanges ? '无差异时不创建提交。' : ''}`;
+  updatePublicationConfirmation();
   reviewExpiry = setTimeout(() => { clearPublicationReview(); $('publication-configuration').textContent = '核对结果已过期，请重新生成；没有内容被发布。'; }, remaining);
+}));
+function updatePublicationConfirmation() {
+  $<HTMLButtonElement>('review-publication').disabled = pending || publicationInFlight || !publicationConfigured;
+  $<HTMLButtonElement>('refresh-publication').disabled = pending || publicationInFlight;
+  $<HTMLButtonElement>('confirm-publication').disabled = pending || publicationInFlight || !publicationCanPublish || !reviewedPlan?.execution?.publishEnabled ||
+    Date.now() >= Date.parse(reviewedPlan?.expiresAt ?? '') || !$<HTMLInputElement>('publication-acknowledge').checked;
+}
+function displayPublicationProgress(progress: PublicationProgress | null) {
+  $('publication-job').hidden = !progress;
+  if (!progress) return;
+  const labels: Record<PublicationProgress['job']['phase'], string> = {
+    prepared: '确认已记录，执行结果待查询', committing: '正在生成提交', committed: '已生成候选提交，推送结果待核对', pushing: '推送结果待查询',
+    pushed: '已推送 Git，网站部署尚未核验', 'no-changes': '没有差异，未创建新提交', conflict: '远端已变化，本次未推送', unknown: '执行结果不确定，需要人工核对；不会自动重推', expired: '核对已过期，本次未推送',
+  };
+  const baseline = progress.baseline === 'advanced' ? '工作区基线已更新，后续编辑已保留。' : progress.baseline === 'conflict' ? 'Git 结果已保留，但工作区基线未能更新，需要人工核对。' : '工作区基线尚未更新。';
+  $('publication-job-status').textContent = `${labels[progress.job.phase]}。${baseline}`;
+  $('publication-job-detail').textContent = `作业 ${progress.job.id} · 冻结版本 ${progress.job.revision.slice(0, 12)}${progress.job.commit ? ' · Git ' + progress.job.commit.slice(0, 12) : ''}`;
+  $('publish-status').textContent = '最近作业：' + labels[progress.job.phase];
+}
+async function applyPublicationProgress(progress: PublicationProgress | null, ownsEditingLock = false) {
+  displayPublicationProgress(progress);
+  if (progress?.baseline !== 'advanced' || (pending && !ownsEditingLock)) return;
+  const fresh = await api<State>('/api/workspace');
+  // If only the baseline changed, refresh the CAS token without touching any input.
+  // Never adopt another editor's changed content as the base of this page's unsaved form.
+  if ((!pending || ownsEditingLock) && JSON.stringify(fresh.workspace) === JSON.stringify(state.workspace)) {
+    state.revision = fresh.revision; state.sourceChanged = fresh.sourceChanged;
+    $('revision').textContent = '私有版本 ' + state.revision.slice(0, 10);
+    $('source-warning').hidden = !state.sourceChanged;
+  } else if ((!pending || ownsEditingLock) && !dirtyForms.size && view === 'publication') {
+    state = fresh; render(); displayPublicationProgress(progress);
+  }
+}
+$('publication-acknowledge').addEventListener('change', updatePublicationConfirmation);
+$('cancel-publication').addEventListener('click', () => { clearPublicationReview(); message('已取消本次核对，未发起推送。'); });
+$('confirm-publication').addEventListener('click', () => {
+  const plan = reviewedPlan;
+  if (!plan?.execution || !publicationCanPublish || !$<HTMLInputElement>('publication-acknowledge').checked) return;
+  if (publicationInFlight || pending) return;
+  void (async () => {
+    publicationInFlight = true; clearPublicationReview();
+    try {
+      const result = await api<{ progress: PublicationProgress }>('/api/publication/confirm', {
+        id: plan.execution!.id, planId: plan.planId, revision: plan.revision, baseCommit: plan.baseCommit, acknowledgePrivateSnapshot: true,
+      });
+      await applyPublicationProgress(result.progress);
+    } catch (error) {
+      $('publication-job').hidden = false;
+      $('publication-job-status').textContent = '确认未完成或结果待查询；请查询作业状态，不要重复发布。';
+      $('publication-job-detail').textContent = `核对作业 ${plan.execution!.id}`;
+      message(error instanceof ApiError ? error.message : '确认响应未能取得，执行结果待查询；不要重复推送，当前输入仍然保留。', true);
+    } finally { publicationInFlight = false; updatePublicationConfirmation(); }
+  })();
+});
+$('refresh-publication').addEventListener('click', () => void action(async () => {
+  clearPublicationReview();
+  const result = await api<{ progress: PublicationProgress | null }>('/api/publication/reconcile', {});
+  await applyPublicationProgress(result.progress, true);
+  if (!result.progress) message('没有已确认的发布作业；不会自动推送。');
 }));
 $('toggle-library').addEventListener('click', () => toggleLibrary(!$('article-library').classList.contains('is-open')));
 $('mobile-new-article').addEventListener('click', newArticle);

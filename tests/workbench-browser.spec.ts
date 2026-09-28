@@ -471,3 +471,66 @@ test('isolated reviewer explains disabled publishing and reports baseline migrat
   await expect(page.locator('#publication-result')).toBeHidden();
   expect(writes).toBe(0);
 });
+
+const publishFixture = process.env.WORKBENCH_TEST_PUBLISH === '1';
+async function reviewForConfirmation(page: Page) {
+  await page.locator('#view-publication').click();
+  await expect(page.locator('#review-publication')).toBeEnabled();
+  await page.locator('#review-publication').click();
+  await expect(page.locator('#publication-confirmation')).toBeVisible();
+  await expect(page.locator('#confirm-publication')).toBeDisabled();
+}
+test('explicit confirmation includes drafts, can be cancelled, survives reload, and handles no-op without claiming deployment', async ({ page }) => {
+  test.skip(!publishFixture, 'Requires a disposable local bare remote, never production.');
+  await login(page); await createDraft(page, '确认流程草稿');
+  let confirms = 0; page.on('request', request => { if (request.url().endsWith('/api/publication/confirm')) confirms++; });
+  await reviewForConfirmation(page); await expect(page.locator('#publication-disclosure')).toContainText('仅私有 Git · 草稿 确认流程草稿');
+  await page.locator('#cancel-publication').click(); await expect(page.locator('#publication-result')).toBeHidden(); expect(confirms).toBe(0);
+  await page.locator('#review-publication').click(); await expect(page.locator('#publication-confirmation')).toBeVisible();
+  await page.locator('#publication-acknowledge').check(); await expect(page.locator('#confirm-publication')).toBeEnabled();
+  await page.locator('#confirm-publication').click();
+  await expect(page.locator('#publication-job-status')).toContainText('已推送 Git，网站部署尚未核验');
+  await expect(page.locator('#publication-job-status')).toContainText('基线已更新');
+  await expect(page.locator('#refresh-publication')).toBeEnabled(); expect(confirms).toBe(1);
+  await page.reload(); await page.locator('#view-publication').click(); await expect(page.locator('#publication-job-status')).toContainText('已推送 Git');
+  await page.locator('#refresh-publication').click(); expect(confirms).toBe(1);
+  await page.locator('#review-publication').click(); await expect(page.locator('#publication-summary')).toContainText('没有差异');
+  await page.locator('#publication-acknowledge').check(); await page.locator('#confirm-publication').click();
+  await expect(page.locator('#publication-job-status')).toContainText('没有差异，未创建新提交');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+test('a save in another page after review invalidates confirmation without silently publishing it', async ({ page, context }) => {
+  test.skip(!publishFixture, 'Requires disposable publisher.');
+  await login(page); await reviewForConfirmation(page);
+  const other = await context.newPage(); await login(other);
+  await other.locator('#article-form').getByLabel('标题', { exact: true }).fill('另一个页面的新标题');
+  await other.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(other);
+  const response = page.waitForResponse(response => response.url().endsWith('/api/publication/confirm'));
+  await page.locator('#publication-acknowledge').check(); await page.locator('#confirm-publication').click();
+  expect((await response).status()).toBe(409); await expect(page.locator('#message')).toContainText('已变化');
+  await expect(page.locator('#publication-confirmation')).toBeHidden(); await other.close();
+});
+test('typing while confirmation response is in flight survives baseline advancement and can still be saved', async ({ page }) => {
+  test.skip(!publishFixture, 'Requires disposable publisher.');
+  await login(page); await reviewForConfirmation(page);
+  let release!: () => void; const held = new Promise<void>(resolve => release = resolve);
+  let accepted!: () => void; const completed = new Promise<void>(resolve => accepted = resolve);
+  await page.route('**/api/publication/confirm', async route => { const response = await route.fetch(); accepted(); await held; await route.fulfill({ response }); });
+  await page.locator('#publication-acknowledge').check(); await page.locator('#confirm-publication').click(); await completed;
+  await page.locator('#view-articles').click();
+  const body = page.locator('#article-form').getByLabel('Markdown 正文'); const next = (await body.inputValue()) + '\n\n发布期间继续写的新内容\n';
+  await body.fill(next); release();
+  await expect(page.locator('#refresh-publication')).toBeEnabled(); await expect(body).toHaveValue(next);
+  await expect(page.locator('#save-status')).toContainText('未保存');
+  await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page); await expect(body).toHaveValue(next);
+});
+test('lost browser response recovers using status queries rather than repeating confirmation', async ({ page }) => {
+  test.skip(!publishFixture, 'Requires disposable publisher.');
+  await login(page); await reviewForConfirmation(page); let confirms = 0;
+  await page.route('**/api/publication/confirm', async route => { confirms++; await route.fetch(); await route.abort('failed'); });
+  await page.locator('#publication-acknowledge').check(); await page.locator('#confirm-publication').click();
+  await expect(page.locator('#message')).toContainText('执行结果待查询'); await expect(page.locator('#publication-confirmation')).toBeHidden();
+  await page.locator('#refresh-publication').click(); await expect(page.locator('#publication-job-status')).toContainText('已推送 Git'); expect(confirms).toBe(1);
+  await page.locator('#review-publication').click(); await expect(page.locator('#publication-summary')).toContainText('没有差异');
+});
