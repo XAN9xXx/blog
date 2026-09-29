@@ -154,8 +154,8 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 
 工作台是 `workbench/` 下独立 Node 服务，不是 Astro 公开路由。普通保存不修改内容仓库、不提交 Git、不推送 main，也不会触发站点组装。它只写入权限隔离的私有快照。
 
-已实现：单用户密码登录或显式 SSH 隧道免密、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。显式确认、作业查询和发布后基线推进代码已部署阿里云；生产仍关闭真实推送，仅验收无差异核对、作业查询与只观察恢复，真实提交后的恢复仍只在隔离夹具中验证。
-未实现：内容源变更自动合并、快照图形化导入、媒体上传、关系边的独立编辑界面、真实环境发布启用及 CI/CD 部署状态查询。稿件分为“草稿 / 定稿”（存储仍使用 draft 布尔值）；定稿只影响模拟公开预览，不代表已发布。保存状态独立显示，发布通道未接通时不伪造线上状态。
+已实现：单用户密码登录或显式 SSH 隧道免密、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。显式确认、作业查询、发布后基线推进及按发布作业只读查询构建与 Cloudflare 部署状态的代码已部署阿里云；生产仍关闭真实推送，仅验收无差异核对、作业查询与只观察恢复，真实提交后的恢复仍只在隔离夹具中验证。
+未实现：内容源变更自动合并、快照图形化导入、媒体上传、关系边的独立编辑界面、真实环境发布启用。稿件分为“草稿 / 定稿”（存储仍使用 draft 布尔值）；定稿只影响模拟公开预览，不代表已发布。保存状态独立显示，发布通道未接通时不伪造线上状态。
 RSS/sitemap/canonical 所需站点域名、移动端地图可读性和项目内容模型仍是后续工作。
 
 
@@ -449,8 +449,9 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 
 GitHub 的 workflow_dispatch 支持 ref 和 inputs；具体接入时仍需核验默认分支上的工作流与权限：[GitHub 官方说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)。Cloudflare 的 Git 集成可以按仓库提交构建并提供部署状态；项目实际关联仓库、生产分支、构建命令和状态查询权限需要另行检查：[Cloudflare 官方说明](https://developers.cloudflare.com/pages/configuration/git-integration/)。
 
-### 只读构建与部署查询（本地实现，尚未部署）
+### 只读构建与部署查询（已部署）
 
+- 2026-09-30 部署于 blog `d0fb551`，两个只读凭据已安装。以 content `747915f` 对真实 GitHub 与 Cloudflare 直接查询：组装 run `36607294684`（blog `d0fb551`）→ site `f359658` → Pages 生产部署 `d0ecfdf1`，为项目 canonical 部署，结果“已上线”；Pages API 返回完整 40 位 commit、`github:push` 触发与 `deploy/success` 阶段，与代码假设一致。尚无工作台确认的发布作业，网页入口只验收了“无作业时不查询、不联网”；按作业查询待首次真实发布验收。
 - 查询只绑定最近已接受作业中、已证实推送的 content commit。浏览器只提交空对象，不能指定 commit、仓库或 URL；Web 适配器查本地接受记录，worker 以作业 ID 查自己的记录，再查询固定的 GitHub 仓库。
 - 两个只读凭据都只在独立 worker 内使用，不由 Web 进程持有，不进浏览器、快照、日志或生成 site。GitHub token 放在 `/etc/xan9x-publisher/github-read-token`；Cloudflare 凭据放在 `/etc/xan9x-publisher/cloudflare-pages-read`，是含账户 ID 与 token 的 JSON，账户 ID 因此不进入公开仓库。两者所有者均为 `xan9x-publisher`、权限 `0400`，不得为符号链接或开放组/其他用户权限。缺少 GitHub 凭据时返回“未配置”；只缺 Cloudflare 凭据时核验到构建产物为止，并显示未配置 Cloudflare。Cloudflare 文件格式无效时执行器拒绝启动，错误信息不回显文件内容。缺少凭据不影响保存和核对。
 - 先核验私有 content/site 的读取访问，再确认镜像 commit 是否存在。读取 site/main 的 `.site-build.json`，必要时最多查最近 10 个修改该文件的提交；依据 manifest 精确查询 Actions run ID / attempt，核对 blog SHA、工作流路径、content SHA 和 topology 来源。找不到产物时，最多查 50 个显式 dispatch 作业，运行标题只作候选，不能凭标题或 Actions 成功宣称部署成功。
@@ -459,7 +460,7 @@ GitHub 的 workflow_dispatch 支持 ref 和 inputs；具体接入时仍需核验
 - GitHub 与 Cloudflare 合计最多 20 个 GET 请求；每次网络请求 8 秒超时、响应最多 2 MiB、禁止重定向；总查询时间有边界。30 秒内复用同一提交结果，同一 worker 只运行一份查询。范围外或证据不足显示“未找到可核验关联”，网络/权限/证据错误显示“查询暂不可用”；不自动重跑 CI、不重推 Git、不改变基线或正文。
 - GitHub token 使用 fine-grained 类型，仅选择 `blog`、`blog-content`、`site`，Repository permissions 的 Actions / Contents 为 Read-only，Metadata 保持自动只读；不授予任何写权限。Cloudflare 使用 API token，只授予账户级 `Cloudflare Pages: Read`，账户范围限定为托管 `site` 项目的账户。工具不能自动证明用户创建的 token 恰好具备最小权限，创建时需人工核对。推荐设置有效期并提前轮换；到期只影响查询，不改变发布记录。
 - 新代码和脚本获准部署后，用户在阿里云交互 SSH 中分别运行 `sudo bash /opt/xan9x-blog/workbench/set-github-read-token.sh` 与 `sudo bash /opt/xan9x-blog/workbench/set-cloudflare-read-token.sh`：前者隐藏读取 token；后者先读取账户 ID（控制台网址中的 32 位十六进制），再隐藏读取 token。不把 token 写进命令参数、环境文件、聊天或 shell 历史。脚本原子安装凭据但不重启服务；随后经批准重启 publisher 并验收。不要把本机 `gh` 登录凭据复制到 VPS。
-- 未配置凭据、无已确认发布作业时，不伪造一份真实发布记录来验收；先用模拟 API、临时裸仓库和本机只读 GitHub 元数据验证。生产端到端查询仍需凭据及后续真实作业。
+- 未配置凭据、无已确认发布作业时，不伪造一份真实发布记录来验收；先用模拟 API、临时裸仓库和本机只读 GitHub 元数据验证。凭据已配置，经网页的生产端到端查询仍需后续真实作业。
 
 ### 状态判定与失败处理
 
