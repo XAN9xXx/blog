@@ -15,6 +15,7 @@ const store = new WorkspaceStore(process.env.WORKBENCH_CONTENT_DIR ?? path.resol
 const reviewConfig = publicationReviewConfig(process.env);
 const publisherSocket = process.env.WORKBENCH_PUBLISHER_SOCKET;
 if (publisherSocket && reviewConfig) throw new Error('本地基线核对和独立执行器只能配置一种。');
-const server = createWorkbenchServer({ store, origin, passwordHash, authMode, publicationReview: publisherSocket ? new PublisherReview(publisherSocket) : reviewConfig ? new PublicationReview(reviewConfig) : undefined, assets: path.join(blog, 'workbench/dist') });
-server.listen(port, '127.0.0.1', () => console.log(`Private workbench: ${origin} (loopback only; auth=${authMode}; no publishing configured)`));
+const server = createWorkbenchServer({ store, origin, passwordHash, authMode, publicationReview: publisherSocket ? new PublisherReview(publisherSocket, { allowConfirmation: true }) : reviewConfig ? new PublicationReview(reviewConfig) : undefined, assets: path.join(blog, 'workbench/dist') });
+const publishing = publisherSocket ? 'isolated executor, confirmation required' : reviewConfig ? 'offline review only' : 'not configured';
+server.listen(port, '127.0.0.1', () => console.log(`Private workbench: ${origin} (loopback only; auth=${authMode}; publishing=${publishing})`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => server.close(() => process.exit(0)));

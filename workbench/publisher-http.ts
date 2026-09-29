@@ -12,7 +12,7 @@ async function body(request: IncomingMessage, max: number) {
   for await (const chunk of request) { size += chunk.length; if (size > max) throw new WorkbenchError('请求过大。', 413); chunks.push(chunk); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new WorkbenchError('无效的 JSON。'); }
 }
-/** Unix permissions are the IPC trust boundary. Production leaves confirmation disabled. */
+/** Unix permissions are the IPC trust boundary. Confirmation stays off unless the caller opts in explicitly. */
 export function createPublisherServer(executor: Pick<PublicationExecutor, 'prepare' | 'get' | 'confirm' | 'reconcile' | 'publishEnabled'>, options: { allowConfirmation?: boolean; deployment?: DeploymentReader } = {}) {
   const deployment = options.deployment ?? new DeploymentReader();
   const canPublish = options.allowConfirmation === true && executor.publishEnabled;

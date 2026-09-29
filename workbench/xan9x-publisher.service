@@ -1,5 +1,5 @@
 [Unit]
-Description=XAN9x isolated content publication reviewer (push disabled)
+Description=XAN9x isolated content publisher (confirmed fast-forward pushes)
 After=network.target
 
 [Service]
