@@ -432,7 +432,7 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 
 ### CI 输入与发布结果的对应关系
 
-截至本轮部署，线上 content 触发器仍仅 dispatch blog 的 main，组装时 checkout content 默认分支。本地已实现下述固定输入切片，尚未推送验收：
+2026-09-29 固定输入切片已推送并验收：blog `f0796e9`、content `747915f`、topology `4792e12`。未指定 SHA 的运行 `36547989814` 与显式指定 SHA 的运行 `36548263665` 均成功；最终 site `b1f5aee` 的来源记录与第二次运行完全对应，Cloudflare 检查成功，部署地址首页与文章 HTTP 200。新版 content 发送端已上线且纯工作流变更按预期不触发，但尚未用一次新的文章提交验收自动发送路径。
 
 - content 触发器通过 `inputs.content_commit` 传入完整事件 SHA；仅更改 `.github/` 不自动发布。先上线 blog 的新接收端，再上线 content 触发器，不能反过来发送旧工作流不认识的 input。
 - blog 接受可选的完整小写 SHA；未提供时仅查询一次私有 content/main，后续 checkout 使用该固定 SHA，拒绝分支名、短 SHA 和无效输入。凭据只用于固定仓库，不接受客户端仓库地址。
@@ -448,6 +448,18 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 - 没有生成新 site commit 时，先核对既有产物与输入是否一致，再关联既有部署；不能伪造新的部署任务。
 
 GitHub 的 workflow_dispatch 支持 ref 和 inputs；具体接入时仍需核验默认分支上的工作流与权限：[GitHub 官方说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)。Cloudflare 的 Git 集成可以按仓库提交构建并提供部署状态；项目实际关联仓库、生产分支、构建命令和状态查询权限需要另行检查：[Cloudflare 官方说明](https://developers.cloudflare.com/pages/configuration/git-integration/)。
+
+### 只读构建与部署查询（本地实现，尚未部署）
+
+- 查询只绑定最近已接受作业中、已证实推送的 content commit。浏览器只提交空对象，不能指定 commit、仓库或 URL；Web 适配器查本地接受记录，worker 以作业 ID 查自己的记录，再查询固定的 GitHub 仓库。
+- GitHub 只读 token 只在独立 worker 内使用，不由 Web 进程持有，不进浏览器、快照、日志或生成 site。生产可选文件为 `/etc/xan9x-publisher/github-read-token`，所有者 `xan9x-publisher`、权限 `0400`；缺失时返回“未配置”，不会影响保存和核对。文件不得为符号链接或开放组/其他用户权限。
+- 先核验私有 content/site 的读取访问，再确认镜像 commit 是否存在。读取 site/main 的 `.site-build.json`，必要时最多查最近 10 个修改该文件的提交；依据 manifest 精确查询 Actions run ID / attempt，核对 blog SHA、工作流路径、content SHA 和 topology 来源。找不到产物时，最多查 50 个显式 dispatch 作业，运行标题只作候选，不能凭标题或 Actions 成功宣称部署成功。
+- Cloudflare 检查须匹配 site SHA、已核验的应用 ID `85455` / slug `cloudflare-workers-and-pages`、检查名称及固定 `site` 项目详情链接。更新的失败/进行中检查不能被较早的成功覆盖；历史 site 提交明确标注，不代表当前线上版本。
+- 首个查询结果是“Cloudflare 检查通过，生产版本尚未核验”，`productionVerified` 固定为 false；本切片没有 Cloudflare API 凭据，不宣称已核验生产别名、自定义域名或实时线上版本。原发布作业的 `deployed` 仍为 false。
+- 最多 20 个 GitHub GET 请求；每次网络请求 8 秒超时、响应最多 2 MiB、禁止重定向；总查询时间有边界。30 秒内复用同一提交结果，同一 worker 只运行一份查询。范围外或证据不足显示“未找到可核验关联”，网络/权限/证据错误显示“查询暂不可用”；不自动重跑 CI、不重推 Git、不改变基线或正文。
+- 私有 GitHub token 使用 fine-grained 类型，仅选择 `blog`、`blog-content`、`site`，Repository permissions 的 Actions / Contents / Checks 均为 Read-only，Metadata 保持自动只读；不授予任何写权限。工具不能自动证明用户创建的 token 恰好具备最小权限，创建时需人工核对。推荐设置有效期并提前轮换；到期只影响查询，不改变发布记录。
+- 新代码和脚本获准部署后，用户在阿里云交互 SSH 中运行 `bash /opt/xan9x-blog/workbench/set-github-read-token.sh`，按隐藏提示粘贴 token；不把 token 写进命令参数、环境文件、聊天或 shell 历史。脚本原子安装凭据但不重启服务；随后经批准重启 publisher 并验收。不要把本机 `gh` 登录凭据复制到 VPS。
+- 未配置凭据、无已确认发布作业时，不伪造一份真实发布记录来验收；先用模拟 API、临时裸仓库和本机只读 GitHub 元数据验证。生产端到端查询仍需凭据及后续真实作业。
 
 ### 状态判定与失败处理
 
