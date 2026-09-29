@@ -1,4 +1,5 @@
 name: Assemble Site
+run-name: Assemble content ${{ inputs.content_commit || 'main (resolve once)' }}
 
 on:
   push:
@@ -14,6 +15,11 @@ on:
       - ".github/**"
 
   workflow_dispatch:
+    inputs:
+      content_commit:
+        description: Full content commit SHA; leave empty to resolve main once
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -32,10 +38,27 @@ jobs:
         with:
           path: blog
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: blog/package-lock.json
+
+      - name: Resolve immutable Content revision
+        id: content
+        working-directory: blog
+        env:
+          REQUESTED_CONTENT_COMMIT: ${{ inputs.content_commit }}
+          CONTENT_READ_TOKEN: ${{ secrets.BLOG_CONTENT_TOKEN }}
+        run: node scripts/assembly-provenance.ts
+
       - name: Checkout Blog-Content
         uses: actions/checkout@v4
         with:
           repository: XAN9xXx/blog-content
+          ref: ${{ steps.content.outputs.commit }}
+          persist-credentials: false
           token: ${{ secrets.BLOG_CONTENT_TOKEN }}
           path: xan9x-blog-content
 
@@ -45,13 +68,6 @@ jobs:
           repository: XAN9xXx/site
           token: ${{ secrets.SITE_TOKEN }}
           path: xan9x-site
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: blog/package-lock.json
 
       - name: Read pinned Topology revision
         id: topology
@@ -105,6 +121,10 @@ jobs:
         env:
           BLOG_CONTENT_SOURCE: ${{ github.workspace }}/xan9x-blog-content
           SITE_DIR: ${{ github.workspace }}/xan9x-site
+          ASSEMBLY_CONTENT_COMMIT: ${{ steps.content.outputs.commit }}
+          ASSEMBLY_REPOSITORY: ${{ github.repository }}
+          ASSEMBLY_RUN_ID: ${{ github.run_id }}
+          ASSEMBLY_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: npm run assemble
 
       - name: Install generated Site dependencies
@@ -118,6 +138,7 @@ jobs:
         run: npm run build
 
       - name: Commit generated Site
+        id: site
         working-directory: xan9x-site
         run: |
           git config user.name "xan9x-site-bot"
@@ -127,8 +148,17 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "No generated changes."
-            exit 0
+          else
+            git commit -m "assemble site"
+            git push
           fi
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-          git commit -m "assemble site"
-          git push
+      - name: Record assembled revision chain
+        env:
+          CONTENT_COMMIT: ${{ steps.content.outputs.commit }}
+          TOPOLOGY_COMMIT: ${{ steps.topology.outputs.commit }}
+          SITE_COMMIT: ${{ steps.site.outputs.commit }}
+        run: |
+          printf '## Assembled revisions\n\n- Blog: `%s`\n- Content: `%s`\n- Topology: `%s`\n- Site: `%s`\n\nCloudflare deployment is not verified by this job.\n' \
+            "$GITHUB_SHA" "$CONTENT_COMMIT" "$TOPOLOGY_COMMIT" "$SITE_COMMIT" >> "$GITHUB_STEP_SUMMARY"

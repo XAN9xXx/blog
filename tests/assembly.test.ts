@@ -13,8 +13,8 @@ function setup(t: { after(fn: () => void): void }) {
   const content = path.join(root, 'content');
   cpSync(path.join(blog, '../xan9x-blog-content'), content, { recursive: true });
   const site = path.join(root, 'site');
-  const run = (target = site) => spawnSync(process.execPath, ['--import', 'tsx', 'scripts/assemble.ts'], {
-    cwd: blog, encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', BLOG_CONTENT_SOURCE: content, SITE_DIR: target },
+  const run = (target = site, extra: NodeJS.ProcessEnv = {}) => spawnSync(process.execPath, ['--import', 'tsx', 'scripts/assemble.ts'], {
+    cwd: blog, encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', BLOG_CONTENT_SOURCE: content, SITE_DIR: target, ...extra },
   });
   return { root, content, site, run };
 }
@@ -95,4 +95,13 @@ test('invalid music fails before replacing target; a valid playlist travels with
   assert.equal(f.run().status, 0);
   assert.ok(existsSync(path.join(f.site, 'content/music/playlist.json')));
   assert.equal(readFileSync(path.join(f.site, 'content/music/fixture.wav'), 'utf8'), 'test bytes');
+});
+
+test('CI content mismatch fails before replacing a generated target', t => {
+  const f = setup(t); mkdirSync(f.site);
+  writeFileSync(path.join(f.site, '.site-build.json'), JSON.stringify({ blog: { commit: 'old' }, content: { commit: 'old' } }));
+  writeFileSync(path.join(f.site, 'keep.txt'), 'keep');
+  const result = f.run(f.site, { ASSEMBLY_CONTENT_COMMIT: '0'.repeat(40), ASSEMBLY_REPOSITORY: 'XAN9xXx/blog', ASSEMBLY_RUN_ID: '123', ASSEMBLY_RUN_ATTEMPT: '1' });
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /exact pinned content commit/);
+  assert.equal(readFileSync(path.join(f.site, 'keep.txt'), 'utf8'), 'keep');
 });

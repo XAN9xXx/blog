@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { loadContentCatalog } from '../src/lib/content-files';
 import { loadMusicCatalog } from '../src/lib/music';
 import { publicAuthoringSource } from '../src/lib/topology-content';
+import { assemblyRun } from './assembly-provenance';
 
 const blogDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const contentDir = path.resolve(process.env.BLOG_CONTENT_SOURCE ?? path.join(blogDir, '../xan9x-blog-content'));
@@ -81,7 +82,8 @@ function assemble(): void {
     throw new Error('Topology archive does not match package-lock.json.');
   }
   const topologySource = JSON.parse(readFileSync(path.join(blogDir, 'topology-source.json'), 'utf8'));
-  const build = { ...sources, topology: { ...topologySource, integrity } };
+  const run = assemblyRun(process.env, sources); // Validate before replacing any generated files.
+  const build = { ...sources, topology: { ...topologySource, integrity }, ...(run ? { assembly: run } : {}) };
 
   console.log('Preflight passed; assembling ' + siteDir);
   mkdirSync(siteDir, { recursive: true });
