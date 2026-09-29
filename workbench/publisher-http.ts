@@ -4,6 +4,7 @@ import { PublicationExecutor } from './publication-executor';
 import { MAX_PLAN_BYTES, parsePublicationSnapshot } from './publication-plan';
 import { confirmationSchema, jobId } from './publication-state';
 import { WorkbenchError } from './model';
+import { DeploymentReader } from './deployment-reader';
 async function body(request: IncomingMessage, max: number) {
   if (request.headers['content-type'] !== 'application/json') throw new WorkbenchError('仅接受 JSON。', 415);
   if (Number(request.headers['content-length'] ?? 0) > max) throw new WorkbenchError('请求过大。', 413);
@@ -12,7 +13,8 @@ async function body(request: IncomingMessage, max: number) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new WorkbenchError('无效的 JSON。'); }
 }
 /** Unix permissions are the IPC trust boundary. Production leaves confirmation disabled. */
-export function createPublisherServer(executor: Pick<PublicationExecutor, 'prepare' | 'get' | 'confirm' | 'reconcile' | 'publishEnabled'>, options: { allowConfirmation?: boolean } = {}) {
+export function createPublisherServer(executor: Pick<PublicationExecutor, 'prepare' | 'get' | 'confirm' | 'reconcile' | 'publishEnabled'>, options: { allowConfirmation?: boolean; deployment?: DeploymentReader } = {}) {
+  const deployment = options.deployment ?? new DeploymentReader();
   const canPublish = options.allowConfirmation === true && executor.publishEnabled;
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json'); response.setHeader('Cache-Control', 'no-store');
@@ -20,6 +22,13 @@ export function createPublisherServer(executor: Pick<PublicationExecutor, 'prepa
     const preparing = request.method === 'POST' && request.url === '/prepare';
     try {
       if (request.method === 'GET' && request.url === '/status') { json({ configured: true, canPublish, transport: 'isolated-worker', remoteChecked: false }); return; }
+      if (request.method === 'POST' && request.url === '/deployment') {
+        const value = await body(request, 4096);
+        if (!value || Object.keys(value).length !== 1) throw new WorkbenchError('仅接受作业 ID。');
+        const job = executor.get(jobId.parse(value.id));
+        if (!job.commit || !['pushed', 'no-changes'].includes(job.phase)) throw new WorkbenchError('尚无已证实推送的提交。', 409);
+        json(await deployment.query(job.commit)); return;
+      }
       if (request.method === 'GET' && request.url?.startsWith('/jobs/')) { json(executor.get(jobId.parse(request.url.slice(6)))); return; }
       if (preparing) {
         let snapshot;

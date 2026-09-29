@@ -52,7 +52,7 @@ test('origin configuration disallows insecure remote origins, paths and URL cred
 });
 test('unauthenticated access reveals neither drafts nor exports, and login requires exact origin/host', async t => {
   const f = await fixture(t);
-  for (const route of ['/api/workspace', '/api/export', '/api/publication', '/api/publication/plan', '/api/publication/job', '/api/publication/confirm', '/api/publication/reconcile', '/.workbench/workspace.json']) assert.equal((await f.request(route)).status, 401);
+  for (const route of ['/api/workspace', '/api/export', '/api/publication', '/api/publication/plan', '/api/publication/job', '/api/publication/confirm', '/api/publication/reconcile', '/api/publication/deployment', '/.workbench/workspace.json']) assert.equal((await f.request(route)).status, 401);
   assert.equal((await f.request('/api/login', { password }, { Origin: 'https://evil.example' })).status, 403);
   assert.equal((await f.request('/api/login', { password }, { Host: 'evil.example' })).status, 403);
   assert.equal((await f.request('/api/login', { password }, { Origin: '' })).status, 403);
@@ -208,4 +208,11 @@ test('publication confirmation and recovery require authentication, CSRF, exact 
   assert.equal((await f.request('/api/publication/reconcile', { id: value.id })).status, 400);
   assert.equal((await f.request('/api/publication/reconcile', {})).status, 200); assert.equal(reconciles, 1);
   assert.deepEqual(await (await f.request('/api/publication/job')).json(), { progress: null });
+});
+
+test('deployment query requires CSRF and rejects client-supplied commit or repository', async t => {
+  const f = await fixture(t);await f.login();
+  assert.equal((await f.request('/api/publication/deployment', {}, { 'X-CSRF-Token': '' })).status,403);
+  assert.equal((await f.request('/api/publication/deployment', { commit: 'a'.repeat(40) })).status,400);
+  assert.deepEqual(await (await f.request('/api/publication/deployment', {})).json(),{report:null});
 });

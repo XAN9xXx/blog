@@ -95,6 +95,11 @@ export function createWorkbenchServer(options: { store: WorkspaceStore; origin: 
       if (method === 'GET' && route === '/api/publication/job') {
         json({ progress: options.publicationReview?.progress?.(options.store) ?? null }); return;
       }
+      if (method === 'POST' && route === '/api/publication/deployment') {
+        const input = await body(request, 4096);
+        if (Object.keys(input).length) throw new WorkbenchError('部署查询不接受提交、仓库或 URL 参数。');
+        json({ report: await options.publicationReview?.deployment?.(options.store) ?? null }); return;
+      }
       if (method === 'POST' && route === '/api/publication/confirm') {
         if (!options.publicationReview?.confirm) throw new WorkbenchError('未开放发布确认。', 404);
         const input = confirmationSchema.parse(await body(request, 4096));

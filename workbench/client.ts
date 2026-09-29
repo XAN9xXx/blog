@@ -1,3 +1,4 @@
+import { deploymentMessage, type DeploymentReport } from './deployment-state';
 import { mountTopology, type TopologyInstance, type TopologyNode } from '@xan9x/topology';
 import type { TopologyDocument } from '@xan9x/topology/schema';
 import '@xan9x/topology/style.css';
@@ -17,6 +18,8 @@ const select = (id: string, name: string) => form(id).elements.namedItem(name) a
 let publicationConfigured = false;
 let publicationCanPublish = false;
 let publicationInFlight = false;
+let deploymentInFlight = false;
+let displayedPublication: PublicationProgress | null = null;
 let reviewedPlan: PublicationReviewSummary | undefined;
 let authMode: 'password' | 'ssh' = 'password';
 let csrf = ''; let state: State; let selectedNode = ''; let selectedArticle: string | undefined;
@@ -329,10 +332,14 @@ $('review-publication').addEventListener('click', () => void action(async () => 
 function updatePublicationConfirmation() {
   $<HTMLButtonElement>('review-publication').disabled = pending || publicationInFlight || !publicationConfigured;
   $<HTMLButtonElement>('refresh-publication').disabled = pending || publicationInFlight;
+  $<HTMLButtonElement>('refresh-deployment').disabled = pending || publicationInFlight || deploymentInFlight;
   $<HTMLButtonElement>('confirm-publication').disabled = pending || publicationInFlight || !publicationCanPublish || !reviewedPlan?.execution?.publishEnabled ||
     Date.now() >= Date.parse(reviewedPlan?.expiresAt ?? '') || !$<HTMLInputElement>('publication-acknowledge').checked;
 }
 function displayPublicationProgress(progress: PublicationProgress | null) {
+  if (progress?.job.id !== displayedPublication?.job.id || progress?.job.commit !== displayedPublication?.job.commit) $('deployment-result').hidden = true;
+  displayedPublication = progress;
+  $('refresh-deployment').hidden = !progress?.job.commit || !['pushed', 'no-changes'].includes(progress.job.phase);
   $('publication-job').hidden = !progress;
   if (!progress) return;
   const labels: Record<PublicationProgress['job']['phase'], string> = {
@@ -385,6 +392,28 @@ $('refresh-publication').addEventListener('click', () => void action(async () =>
   await applyPublicationProgress(result.progress, true);
   if (!result.progress) message('没有已确认的发布作业；不会自动推送。');
 }));
+$('refresh-deployment').addEventListener('click', () => {
+  if (deploymentInFlight || publicationInFlight || pending) return;
+  const expected = displayedPublication?.job;
+  void (async () => {
+    deploymentInFlight = true; updatePublicationConfirmation();
+    $('deployment-result').hidden = false; $('deployment-status').textContent = '正在查询该提交的构建与部署证据…';
+    $('deployment-detail').textContent = ''; $('deployment-links').replaceChildren();
+    try {
+      const { report } = await api<{ report: DeploymentReport | null }>('/api/publication/deployment', {});
+      if (displayedPublication?.job.id !== expected?.id || displayedPublication?.job.commit !== expected?.commit) return;
+      if (!report) { $('deployment-status').textContent = '没有已证实推送的发布作业；未查询或重推任何内容。'; return; }
+      if (report.contentCommit !== expected?.commit) throw new Error('版本不匹配');
+      $('deployment-status').textContent = deploymentMessage(report);
+      $('deployment-detail').textContent = `Content ${report.contentCommit.slice(0, 12)}${report.site ? ' · Site ' + report.site.commit.slice(0, 12) : ''} · 查询于 ${new Date(report.checkedAt).toLocaleString()}（30 秒内复用结果）。只针对该冻结发布版本，不代表当前编辑内容。`;
+      const link = (label: string, href: string) => { const a = document.createElement('a'); a.textContent = label; a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; $('deployment-links').append(a); };
+      if (report.run) link('查看构建', `https://github.com/XAN9xXx/blog/actions/runs/${report.run.id}/attempts/${report.run.attempt}`);
+      if (report.site) link('查看 site 提交', `https://github.com/XAN9xXx/site/commit/${report.site.commit}`);
+      if (report.check) link('查看 Cloudflare 检查', report.check.url);
+    } catch { $('deployment-status').textContent = '部署状态查询失败；不会改变文章、发布记录或重推内容。'; }
+    finally { deploymentInFlight = false; updatePublicationConfirmation(); }
+  })();
+});
 $('toggle-library').addEventListener('click', () => toggleLibrary(!$('article-library').classList.contains('is-open')));
 $('mobile-new-article').addEventListener('click', newArticle);
 $('new-article').addEventListener('click', newArticle); $('empty-new-article').addEventListener('click', newArticle);

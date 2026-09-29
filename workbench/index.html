@@ -331,6 +331,12 @@
           <p class="field-help">这里只核实 Git 和私有工作区基线；未接入 CI/CD 部署结果。结果不确定时只查询，不重新推送。</p>
         </section>
         <button id="refresh-publication" type="button" hidden>查询作业状态</button>
+        <section id="deployment-result" class="settings" hidden>
+          <h3>该发布版本的构建与部署</h3>
+          <p id="deployment-status" role="status"></p><p id="deployment-detail" class="muted"></p>
+          <p id="deployment-links" class="actions"></p>
+        </section>
+        <button id="refresh-deployment" type="button" hidden>查询构建与部署</button>
       </section>
     </main>
     <footer>普通保存只写私有工作区 · Git 推送和网站上线是独立状态</footer>

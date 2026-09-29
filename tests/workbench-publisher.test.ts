@@ -60,3 +60,10 @@ test('unavailable service and invalid remote baselines do not leak private paths
     assert.ok(error instanceof Error); assert.match(error.message, /尚未完成内容格式迁移/); assert.ok(!error.message.includes(f.root)); return true;
   });
 });
+
+test('IPC deployment lookup rejects prepared jobs and caller-supplied targets', async t => {
+  const f = await fixture(t); const before=f.store.get();const plan=await f.client.create(f.store,before.revision);
+  assert.equal((await f.call('POST','/deployment',{id:plan.execution!.id})).status,409);
+  assert.equal((await f.call('POST','/deployment',{id:plan.execution!.id,commit:'a'.repeat(40)})).status,400);
+  assert.equal(await f.client.deployment(f.store),null);assert.deepEqual(f.store.get(),before);
+});

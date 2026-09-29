@@ -139,3 +139,10 @@ test('executor expiration is terminal and does not push even after a confirmed a
   } finally { Date.now = now; }
   assert.equal(f.head(), head);
 });
+
+test('deployment status remains read-only and unconfigured after a successful isolated publish', async t => {
+  const f=await fixture(t);f.change();const plan=await f.client.create(f.store,f.store.get().revision);await f.client.confirm(f.store,confirmation(plan));
+  const before=f.store.get(),receipt=f.client.progress(f.store),head=f.head(),count=f.count();
+  const report=await f.client.deployment(f.store);assert.equal(report?.contentCommit,head);assert.equal(report?.state,'unconfigured');assert.equal(report?.productionVerified,false);
+  assert.deepEqual(f.store.get(),before);assert.deepEqual(f.client.progress(f.store),receipt);assert.equal(f.head(),head);assert.equal(f.count(),count);
+});

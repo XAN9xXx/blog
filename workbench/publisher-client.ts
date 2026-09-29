@@ -1,5 +1,6 @@
 import { request } from 'node:http';
 import path from 'node:path';
+import { deploymentReportSchema } from './deployment-state';
 import type { WorkspaceStore } from './store';
 import { WorkbenchError } from './model';
 import { MAX_PLAN_BYTES } from './publication-plan';
@@ -83,6 +84,14 @@ export class PublisherReview implements PublicationReviewProvider {
       try { return this.acceptResult(store, journal, accepted, await this.call('/confirm', input)); }
       catch { throw new WorkbenchError('确认请求已记录，但执行结果待查询；不要重复发布。请点击“查询作业状态”。', 503); }
     });
+  }
+  async deployment(store: WorkspaceStore) {
+    const before = this.progress(store);
+    if (!before?.job.commit || !['pushed', 'no-changes'].includes(before.job.phase)) return null;
+    const report = deploymentReportSchema.parse(await this.call('/deployment', { id: before.job.id }));
+    const after = this.progress(store);
+    if (!after || !sameJob(before.job, after.job) || after.job.commit !== report.contentCommit || before.job.commit !== report.contentCommit) throw new WorkbenchError('查询期间发布作业已变化，结果已丢弃。', 409);
+    return report; // Never updates the acceptance receipt, workspace, Git refs, or deployed flag.
   }
   async reconcile(store: WorkspaceStore): Promise<PublicationProgress | null> {
     return this.locked(store, async journal => {

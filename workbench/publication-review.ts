@@ -1,3 +1,4 @@
+import type { DeploymentReport } from './deployment-state';
 import type { PublicationConfirmation, PublicationJob, PublicationProgress } from './publication-state';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -11,6 +12,7 @@ export interface PublicationReviewProvider {
   status: { configured: boolean; canPublish: boolean; baseCommit?: string; visibilityDeclaration?: string; remoteChecked: boolean; transport?: string };
   create(store: WorkspaceStore, revision: string): Promise<PublicationReviewSummary>;
   availability?(): Promise<PublicationReviewProvider['status']>;
+  deployment?(store: WorkspaceStore): Promise<DeploymentReport | null>;
   progress?(store: WorkspaceStore): PublicationProgress | null;
   confirm?(store: WorkspaceStore, input: PublicationConfirmation): Promise<PublicationProgress>;
   reconcile?(store: WorkspaceStore): Promise<PublicationProgress | null>;

@@ -534,3 +534,19 @@ test('lost browser response recovers using status queries rather than repeating 
   await page.locator('#refresh-publication').click(); await expect(page.locator('#publication-job-status')).toContainText('已推送 Git'); expect(confirms).toBe(1);
   await page.locator('#review-publication').click(); await expect(page.locator('#publication-summary')).toContainText('没有差异');
 });
+
+test('deployment query shows evidence without claiming current production or triggering writes', async ({ page }) => {
+  await login(page);
+  const commit='a'.repeat(40), job={id:'12345678-1234-4123-8123-123456789012',planId:'b'.repeat(64),expiresAt:'2030-01-01T00:00:00.000Z',phase:'pushed',commit,revision:'c'.repeat(64),baseRevision:'d'.repeat(64),candidateDigest:'e'.repeat(64),baseCommit:'f'.repeat(40),publishEnabled:false,deployed:false};
+  await page.route('**/api/publication',route=>route.fulfill({json:{configured:true,canPublish:false,transport:'isolated-worker'}}));
+  await page.route('**/api/publication/job',route=>route.fulfill({json:{progress:{version:1,job,baseline:'advanced'}}}));
+  let queries=0,writes=0;
+  page.on('request',request=>{if(['/api/command','/api/publication/confirm','/api/publication/reconcile'].some(path=>request.url().endsWith(path)))writes++;});
+  await page.route('**/api/publication/deployment',route=>{queries++;expect(route.request().postDataJSON()).toEqual({});return route.fulfill({json:{report:{contentCommit:commit,checkedAt:'2026-09-29T09:00:00.000Z',state:queries===1?'deployment-check-passed':'unavailable',productionVerified:false,run:queries===1?{id:123,attempt:2,blogCommit:'b'.repeat(40)}:null,site:queries===1?{commit:'d'.repeat(40),current:false,topologyCommit:'e'.repeat(40)}:null,check:null}}});});
+  await page.locator('#view-publication').click();await expect(page.locator('#refresh-deployment')).toBeVisible();
+  await page.locator('#refresh-deployment').click();await expect(page.locator('#deployment-status')).toContainText('生产版本尚未核验');await expect(page.locator('#deployment-status')).toContainText('历史 site');
+  await expect(page.locator('#deployment-detail')).toContainText('不代表当前编辑内容');await expect(page.locator('#deployment-links a')).toHaveCount(2);
+  await expect(page.locator('#publish-status')).not.toContainText('已上线');await expect(page.locator('#refresh-deployment')).toBeEnabled();
+  await page.locator('#refresh-deployment').click();await expect(page.locator('#deployment-status')).toContainText('查询暂不可用');await expect(page.locator('#deployment-links a')).toHaveCount(0);
+  expect(queries).toBe(2);expect(writes).toBe(0);
+});
