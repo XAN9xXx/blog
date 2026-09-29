@@ -154,7 +154,7 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 
 工作台是 `workbench/` 下独立 Node 服务，不是 Astro 公开路由。普通保存不修改内容仓库、不提交 Git、不推送 main，也不会触发站点组装。它只写入权限隔离的私有快照。
 
-已实现：单用户密码登录或显式 SSH 隧道免密、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。本地另已实现显式确认、作业查询和发布后基线推进；生产默认关闭真实推送，新增闭环尚未部署验收。
+已实现：单用户密码登录或显式 SSH 隧道免密、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。显式确认、作业查询和发布后基线推进代码已部署阿里云；生产仍关闭真实推送，仅验收无差异核对、作业查询与只观察恢复，真实提交后的恢复仍只在隔离夹具中验证。
 未实现：内容源变更自动合并、快照图形化导入、媒体上传、关系边的独立编辑界面、真实环境发布启用及 CI/CD 部署状态查询。稿件分为“草稿 / 定稿”（存储仍使用 draft 布尔值）；定稿只影响模拟公开预览，不代表已发布。保存状态独立显示，发布通道未接通时不伪造线上状态。
 RSS/sitemap/canonical 所需站点域名、移动端地图可读性和项目内容模型仍是后续工作。
 
@@ -344,7 +344,7 @@ npm run workbench:test:browser
 
 ## 发布闭环：离线核对原型与后续设计
 
-目前实现了离线核对网页、独立执行器内核、显式确认与状态查询 IPC，以及安全的工作区基线推进。最新确认闭环只在本地临时仓库验证，未部署；线上仍是只核对版本。生产真实推送在 Web 适配器、IPC 路由和执行器三个边界默认关闭，不提供环境变量启用开关。已获准安装 content 专用受限凭据，但首次真实推送仍需单独确认；未修改 GitHub Actions、雨云仓库 hook 或 Cloudflare 配置。当前推进顺序为：窄屏地图修复 → 工作台发布流程 → CI/CD 对齐；核对结果不表示 CI/CD 已接通。
+目前实现了离线核对网页、独立执行器内核、显式确认与状态查询 IPC，以及安全的工作区基线推进。确认闭环代码已部署阿里云，但线上仍保持只核对；真实提交与基线推进只在临时仓库验证。生产真实推送在 Web 适配器、IPC 路由和执行器三个边界默认关闭，不提供环境变量启用开关。已获准安装 content 专用受限凭据，但首次真实推送仍需单独确认；未修改 GitHub Actions、雨云仓库 hook 或 Cloudflare 配置。当前推进顺序为：窄屏地图修复 → 工作台发布流程 → CI/CD 对齐；核对结果不表示 CI/CD 已接通。
 
 ### 已实现：只读离线计划器与网页核对
 
@@ -412,13 +412,13 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 - Web 服务以 `xan9x-workbench` 运行；执行器以 `xan9x-publisher` 运行，socket 的共享组为 `xan9x-workbench`。socket `0660`、运行目录 `0750`；发布者私有目录 `0700`、私钥 `0600`，Web 用户不能读取密钥。
 - `workbench/xan9x-publisher.service` 与 `workbench/publisher-server.ts` 固定远端 content/main、密钥和已核验的主机公钥路径。远端写作 SSH 别名 `content-origin`，实际地址和端口只放在服务器上 root 管理的 `/etc/xan9x-publisher/ssh_config`（`Host content-origin` 下写 `HostName`、`Port`，root:root 0644），不进入公开仓库；缺少该文件时执行器拒绝启动。客户端只能发送快照，不能传 URL、SSH 命令、仓库路径或 ref。
 - Web 配置 `WORKBENCH_PUBLISHER_SOCKET=/run/xan9x-publisher/review.sock`，与 `WORKBENCH_REVIEW_*` 离线配置互斥。网页入口仍用原来的认证、同源和 CSRF 校验；Unix socket 没有 TCP 监听端口。
-- 目前已部署的生产版本仅开放 `/status` 与 `/prepare`，`publishEnabled` 固定为 false。新版本增加 `/jobs/<id>` 和只观察结果的 `/reconcile`；`/confirm` 仅在显式允许且执行器开启时注册，生产入口仍不启用。核对会 fetch 并验证远端 main 在读取期间不变，再检查私有快照的导入基线。成功后最多保留 100 个作业，达到上限需人工审阅清理，不自动丢弃未核对状态。
+- 目前已部署的生产版本开放 `/status`、`/prepare`、`/jobs/<id>` 和只观察结果的 `/reconcile`，`publishEnabled` 固定为 false；`/confirm` 仅在显式允许且执行器开启时注册，生产入口仍不启用。核对会 fetch 并验证远端 main 在读取期间不变，再检查私有快照的导入基线。成功后最多保留 100 个作业，达到上限需人工审阅清理，不自动丢弃未核对状态。
 - RainYun 的专用 authorized_keys 条目使用 `restrict` 和 root 管理的 `content-publisher` forced command，仅接受指定 content 路径的 upload-pack/receive-pack；其他仓库、shell 和端口转发拒绝。`git-shell-commands/no-interactive-login` 保留 Git 账号禁止交互登录的边界。该 forced command 以 `receive.denyNonFastForwards`、`receive.denyDeletes` 运行 receive-pack：执行器密钥只能快进更新、不能删除引用；仓库配置保持默认，所有者自己的密钥仍可强推。没有改仓库 hooks。
-- 执行器内核已在临时裸仓库验证：无差异不提交、单次 fast-forward、重复确认幂等、远端变化拒绝、草稿完整保留、非托管文件保留、过期/篡改拒绝、拒绝推送后不重试、发布冻结 R 不覆盖后续 R2。确认接口、网页确认和基线推进已在本地临时仓库联调，**尚未部署或开放生产推送**。
+- 执行器内核已在临时裸仓库验证：无差异不提交、单次 fast-forward、重复确认幂等、远端变化拒绝、草稿完整保留、非托管文件保留、过期/篡改拒绝、拒绝推送后不重试、发布冻结 R 不覆盖后续 R2。确认接口、网页确认和基线推进已在本地临时仓库联调，代码已部署，**尚未开放生产推送**。
 - 异常退出留下 `execution.lock` 时不自动破锁。管理员先停止执行器，读取对应作业阶段、候选 commit 和远端 main 的证据，再决定人工恢复；不能删除锁后盲目重推。`pushing/committed` 的恢复只观察远端，未能证实成功则记为 unknown。
-- 当前已知真实远端仍是旧内容格式，缺少 topology.json / 稳定文章 ID，无法通过发布基线校验。保持明确阻塞，不将基线检查降级；内容迁移及 CI/CD 对齐属于后续阶段。镜像实际可见性、首次内容发布及 Cloudflare 生产验收仍未通过。
+- 2026-09-29 经批准将 content/main 从 `5fd9d62` 快进至 `37f945a`，雨云与私有 GitHub 镜像一致，补齐 topology.json / 稳定文章 ID。工作台对该基线核对成功：无差异、未提交、未推送；私有快照校验值保持不变。迁移触发既有 Actions 运行 `36545503195`，生成 site `3ce6d0e`，Cloudflare 对应部署成功；部署地址首页和文章页 HTTP 200。此为管理员迁移，不是工作台首次真实发布，也未验收自定义域名。
 
-### 本地新增：确认、作业恢复与基线推进
+### 已部署但保持关闭：确认、作业恢复与基线推进
 
 - 网页先核对完整已保存版本，再展示冻结版本、目标 content/main、基线提交、文件变化与草稿范围。必须主动勾选“包括草稿进入私有仓库及私有镜像”后才能确认；取消核对不会发起推送。普通保存不触发发布。
 - `POST /api/publication/confirm` 仅接受严格结构的作业 ID、planId、revision、baseCommit 和显式确认；仍受登录、同源和 CSRF 保护。确认前重新核验当前工作区、过期时间和冻结作业身份；执行器再次核验远端基线。生产 Web 适配器默认拒绝确认，生产 worker 默认也不注册该接口。
@@ -432,9 +432,16 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 
 ### CI 输入与发布结果的对应关系
 
-现有 content 触发器仅 dispatch blog 的 main，组装时 checkout content 默认分支；这能触发构建，但不足以证明某个工作台快照被哪次构建部署。接通闭环前需要：
+截至本轮部署，线上 content 触发器仍仅 dispatch blog 的 main，组装时 checkout content 默认分支。本地已实现下述固定输入切片，尚未推送验收：
 
-- content 触发器传入明确的 content commit；组装工作流接受并校验该输入，checkout 对应 SHA，而不是在运行中读取不断变化的 main。手动触发若未提供 SHA，也要在开始时解析并记录固定值。
+- content 触发器通过 `inputs.content_commit` 传入完整事件 SHA；仅更改 `.github/` 不自动发布。先上线 blog 的新接收端，再上线 content 触发器，不能反过来发送旧工作流不认识的 input。
+- blog 接受可选的完整小写 SHA；未提供时仅查询一次私有 content/main，后续 checkout 使用该固定 SHA，拒绝分支名、短 SHA 和无效输入。凭据只用于固定仓库，不接受客户端仓库地址。
+- 组装预检要求实际 content HEAD 与固定 SHA 一致、两个输入仓库均干净；不满足时在清理输出目录前失败。`.site-build.json` 增加 Actions repository / runId / runAttempt / URL，保留 blog、content、topology 来源。步骤摘要记录生成的 site commit，不向清单自引用写入 site commit。
+- 本地普通组装仍可标记 dirty，不伪造 Actions 身份；测试继续使用临时 site。
+
+完整闭环仍需要后续接通与验收：
+
+- 上线验证固定输入切片：分别覆盖 content 触发和未提供 SHA 的手动触发，核对产物的 content commit 与冻结输入一致。
 - 同时记录实际 blog commit、已固定的 topology commit、content commit、Actions run ID、生成的 site commit，以及 Cloudflare deployment ID，形成一条可核对的链。发布作业根据已推送的 content commit 关联这条链，不靠开始时间或“最近一次成功”猜测。
 - Actions 保留现有校验、地图打包、组装与生成 site 构建闸门；成功后才提交 site。site 仍是可独立构建的 Astro 项目，不改成工作台直接上传 dist；Cloudflare 仍只读取 site。
 - 保留构建合并/取消策略时，旧作业被较新提交取代应显示“被新版本取代”，不能误报为部署成功，也不应自动重新推送旧版本。
