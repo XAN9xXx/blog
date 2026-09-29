@@ -8,26 +8,53 @@ const runSchema = z.object({ id, run_attempt: id, head_sha: sha, path: z.literal
 const manifestSchema = z.object({ blog: z.object({ commit: sha, dirty: z.literal(false) }), content: z.object({ commit: sha, dirty: z.literal(false) }),
   topology: z.object({ repository: z.literal('XAN9xXx/blog-topology'), commit: sha }),
   assembly: z.object({ repository: z.literal('XAN9xXx/blog'), runId: z.string().regex(/^[1-9][0-9]*$/), runAttempt: z.string().regex(/^[1-9][0-9]*$/) }) });
+// The Git-integrated Pages project must still build XAN9xXx/site main; deployments must come from that integration, not ad-hoc uploads.
+const projectSchema = z.object({ name: z.literal('site'), production_branch: z.literal('main'),
+  source: z.object({ type: z.literal('github'), config: z.object({ owner: z.literal('XAN9xXx'), repo_name: z.literal('site') }) }),
+  canonical_deployment: z.object({ id: z.uuid() }).nullish() });
+const pagesDeploymentSchema = z.object({ id: z.uuid(), project_name: z.literal('site'), environment: z.literal('production'),
+  created_on: z.string().refine(value => Number.isFinite(Date.parse(value))), is_skipped: z.boolean().optional(),
+  deployment_trigger: z.object({ type: z.literal('github:push'), metadata: z.object({ branch: z.literal('main'), commit_hash: sha }) }),
+  latest_stage: z.object({ name: z.string(), status: z.string() }) });
+export const cloudflareCredentialSchema = z.strictObject({ accountId: z.string().regex(/^[a-f0-9]{32}$/), token: z.string().regex(/^[A-Za-z0-9_-]{20,512}$/) });
 export type GitHubLookup = (path: string) => Promise<unknown | null>;
+/** Paths are relative to the fixed `site` project of one account. */
+export interface CloudflareLookup { accountId: string; get(path: string): Promise<unknown> }
+export interface DeploymentSources { github: GitHubLookup; cloudflare?: CloudflareLookup }
+function request(transport: typeof fetch, url: string, token: string, accept: string) {
+  return transport(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(8000), headers: { Accept: accept, Authorization: `Bearer ${token}` } });
+}
+async function boundedJson(response: Response, service: string): Promise<unknown> {
+  if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error(`${service} read unavailable.`); }
+  const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+  try { while (true) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > 2 * 1024 * 1024) throw new Error(`${service} response too large.`); chunks.push(value); } }
+  finally { await reader.cancel(); }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
 /** Every request is GET to fixed repositories. null means an actual HTTP 404, not an authentication failure. */
 export function githubLookup(token: string, transport: typeof fetch = fetch): GitHubLookup {
   if (!token || /\s/.test(token)) throw new Error('Invalid read credential.');
   return async path => {
     if (!/^\/repos\/XAN9xXx\/(blog|blog-content|site)(?:\/|$)/.test(path) || path.includes('..')) throw new Error('Invalid query target.');
-    const response = await transport('https://api.github.com' + path, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(8000),
-      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` } });
+    const response = await request(transport, 'https://api.github.com' + path, token, 'application/vnd.github+json');
     if (response.status === 404) { await response.body?.cancel(); return null; }
-    if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error('GitHub read unavailable.'); }
-    const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
-    try { while (true) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > 2 * 1024 * 1024) throw new Error('GitHub response too large.'); chunks.push(value); } }
-    finally { await reader.cancel(); }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return boundedJson(response, 'GitHub');
   };
 }
-/** Evidence-based, bounded lookup. A Cloudflare GitHub check never proves the current production version. */
-export async function readDeployment(commit: string, lookup: GitHubLookup): Promise<DeploymentReport> {
+/** GET-only Pages API reads. A 404 or an unsuccessful envelope is an error, never evidence of absence. */
+export function cloudflareLookup(credential: z.infer<typeof cloudflareCredentialSchema>, transport: typeof fetch = fetch): CloudflareLookup {
+  const { accountId, token } = cloudflareCredentialSchema.parse(credential);
+  return { accountId, async get(path) {
+    if (!/^(?:\/deployments(?:\?[A-Za-z0-9=&_]*)?)?$/.test(path)) throw new Error('Invalid query target.');
+    const response = await request(transport, `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/site${path}`, token, 'application/json');
+    return z.object({ success: z.literal(true), result: z.unknown() }).parse(await boundedJson(response, 'Cloudflare')).result;
+  } };
+}
+/** Evidence-based, bounded lookup. Production is verified only when the matching Pages deployment is the project's canonical one. */
+export async function readDeployment(commit: string, sources: DeploymentSources): Promise<DeploymentReport> {
   sha.parse(commit); const result = deploymentReport(commit, 'unmatched'); let requests = 0; const deadline = Date.now() + 35_000;
-  const get: GitHubLookup = async path => { if (++requests > 20 || Date.now() > deadline) throw new Error('Lookup budget exhausted.'); return lookup(path); };
+  const budget = <T>(call: () => Promise<T>) => { if (++requests > 20 || Date.now() > deadline) throw new Error('Lookup budget exhausted.'); return call(); };
+  const get: GitHubLookup = path => budget(() => sources.github(path));
   try {
     // Verify access first: GitHub conceals inaccessible private repositories with 404.
     for (const repo of ['blog-content', 'site']) {
@@ -68,34 +95,33 @@ export async function readDeployment(commit: string, lookup: GitHubLookup): Prom
     result.site = { commit: siteCommit, current: siteCommit === head, topologyCommit: manifest.topology.commit };
     if (run.status !== 'completed') return { ...result, state: 'building' };
     if (run.conclusion !== 'success') return { ...result, state: run.conclusion === 'cancelled' ? 'cancelled' : 'build-failed' };
-    const checks = z.object({ check_runs: z.array(z.unknown()).max(100) }).parse(await get(`/repos/XAN9xXx/site/commits/${siteCommit}/check-runs?filter=latest&per_page=100`));
-    const schema = z.object({ id, name: z.literal('Cloudflare Pages'), head_sha: z.literal(siteCommit),
-      app: z.object({ id: z.literal(85455), slug: z.literal('cloudflare-workers-and-pages') }), status: z.string(), conclusion: z.string().nullable(), details_url: z.string() });
-    const candidates = checks.check_runs.flatMap(raw => {
-      const parsed = schema.safeParse(raw); if (!parsed.success) return [];
-      try {
-        const url = new URL(parsed.data.details_url);
-        const deploymentId = /^\/[a-f0-9]{32}\/pages\/view\/site\/([a-f0-9-]{36})$/.exec(url.searchParams.get('to') ?? '')?.[1];
-        if (url.origin !== 'https://dash.cloudflare.com' || url.username || url.password || url.pathname !== '/' || !z.uuid().safeParse(deploymentId).success) return [];
-        return [{ ...parsed.data, deploymentId: deploymentId!, url: `https://dash.cloudflare.com/?to=${encodeURIComponent(url.searchParams.get('to')!)}` }];
-      } catch { return []; }
-    }).sort((a, b) => b.id - a.id);
-    const check = candidates[0]; if (!check) return { ...result, state: 'awaiting-deployment' };
-    result.check = { id: check.id, deploymentId: check.deploymentId, url: check.url };
-    result.state = check.status !== 'completed' ? 'deploying' : check.conclusion === 'success' ? 'deployment-check-passed' : 'deployment-failed';
-    return result;
+    // Fine-grained GitHub tokens cannot read check runs, so deployment evidence comes from the Pages API itself.
+    const cloudflare = sources.cloudflare; if (!cloudflare) return { ...result, state: 'deployment-unconfigured' };
+    const project = projectSchema.parse(await budget(() => cloudflare.get('')));
+    const listed = z.array(z.unknown()).max(100).parse(await budget(() => cloudflare.get('/deployments?env=production&page=1&per_page=25')));
+    // The newest deployment of this site commit decides: a later failure or retry is never hidden by an earlier success.
+    const deployment = listed.flatMap(raw => {
+      const parsed = pagesDeploymentSchema.safeParse(raw);
+      return parsed.success && parsed.data.deployment_trigger.metadata.commit_hash === siteCommit ? [parsed.data] : [];
+    }).sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
+    if (!deployment) return { ...result, state: 'awaiting-deployment' };
+    result.deployment = { id: deployment.id, url: `https://dash.cloudflare.com/?to=${encodeURIComponent(`/${cloudflare.accountId}/pages/view/site/${deployment.id}`)}` };
+    const stage = deployment.latest_stage;
+    if (deployment.is_skipped || ['failure', 'canceled', 'skipped'].includes(stage.status)) return { ...result, state: 'deployment-failed' };
+    if (stage.name !== 'deploy' || stage.status !== 'success') return { ...result, state: 'deploying' };
+    return project.canonical_deployment?.id === deployment.id ? { ...result, state: 'live', productionVerified: true } : { ...result, state: 'deployment-succeeded' };
   } catch { return deploymentReport(commit, 'unavailable'); } // No raw API response, private body or credentials cross IPC.
 }
 export class DeploymentReader {
   private cached?: { commit: string; report: DeploymentReport; until: number };
   private pending?: { commit: string; promise: Promise<DeploymentReport> };
-  constructor(private readonly lookup?: GitHubLookup) {}
+  constructor(private readonly sources?: DeploymentSources) {}
   async query(commit: string): Promise<DeploymentReport> {
     sha.parse(commit);
-    if (!this.lookup) return deploymentReport(commit, 'unconfigured');
+    if (!this.sources) return deploymentReport(commit, 'unconfigured');
     if (this.cached?.commit === commit && Date.now() < this.cached.until) return this.cached.report;
     if (this.pending) return this.pending.commit === commit ? this.pending.promise : deploymentReport(commit, 'unavailable');
-    const promise = readDeployment(commit, this.lookup); this.pending = { commit, promise };
+    const promise = readDeployment(commit, this.sources); this.pending = { commit, promise };
     try { const report = await promise; this.cached = { commit, report, until: Date.now() + 30_000 }; return report; }
     finally { this.pending = undefined; }
   }

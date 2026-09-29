@@ -409,7 +409,7 @@ $('refresh-deployment').addEventListener('click', () => {
       const link = (label: string, href: string) => { const a = document.createElement('a'); a.textContent = label; a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; $('deployment-links').append(a); };
       if (report.run) link('查看构建', `https://github.com/XAN9xXx/blog/actions/runs/${report.run.id}/attempts/${report.run.attempt}`);
       if (report.site) link('查看 site 提交', `https://github.com/XAN9xXx/site/commit/${report.site.commit}`);
-      if (report.check) link('查看 Cloudflare 检查', report.check.url);
+      if (report.deployment) link('查看 Cloudflare 部署', report.deployment.url);
     } catch { $('deployment-status').textContent = '部署状态查询失败；不会改变文章、发布记录或重推内容。'; }
     finally { deploymentInFlight = false; updatePublicationConfirmation(); }
   })();
