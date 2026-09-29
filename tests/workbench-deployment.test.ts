@@ -1,0 +1,86 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { DeploymentReader, githubLookup, readDeployment, type GitHubLookup } from '../workbench/deployment-reader';
+import { deploymentMessage, deploymentReportSchema } from '../workbench/deployment-state';
+const content = 'a'.repeat(40), site = 'b'.repeat(40), blog = 'c'.repeat(40), topology = 'd'.repeat(40), newer = 'e'.repeat(40);
+const run = { id: 123, run_attempt: 2, head_sha: blog, path: '.github/workflows/assemble.yml', repository: { full_name: 'XAN9xXx/blog' }, status: 'completed', conclusion: 'success', display_title: `Assemble content ${content}` };
+const manifest = { blog: { commit: blog, dirty: false }, content: { commit: content, dirty: false }, topology: { repository: 'XAN9xXx/blog-topology', commit: topology }, assembly: { repository: 'XAN9xXx/blog', runId: '123', runAttempt: '2' } };
+const check = { id: 456, name: 'Cloudflare Pages', head_sha: site, app: { id: 85455, slug: 'cloudflare-workers-and-pages' }, status: 'completed', conclusion: 'success', details_url: 'https://dash.cloudflare.com/?to=/' + 'f'.repeat(32) + '/pages/view/site/a2e67767-f1cc-454c-a9a9-8c419b20e2ad' };
+const encoded = (value: unknown) => ({ encoding: 'base64', content: Buffer.from(JSON.stringify(value)).toString('base64') });
+function fixture() {
+  const data = new Map<string, unknown>([
+    ['/repos/XAN9xXx/blog-content', { full_name: 'XAN9xXx/blog-content', private: true }],
+    ['/repos/XAN9xXx/site', { full_name: 'XAN9xXx/site', private: true }],
+    [`/repos/XAN9xXx/blog-content/git/commits/${content}`, { sha: content }],
+    ['/repos/XAN9xXx/site/git/ref/heads/main', { object: { type: 'commit', sha: site } }],
+    [`/repos/XAN9xXx/site/contents/.site-build.json?ref=${site}`, encoded(manifest)],
+    ['/repos/XAN9xXx/blog/actions/runs/123/attempts/2', structuredClone(run)],
+    [`/repos/XAN9xXx/site/commits/${site}/check-runs?filter=latest&per_page=100`, { check_runs: [structuredClone(check)] }],
+  ]);
+  const calls: string[] = [];
+  const lookup: GitHubLookup = async path => { calls.push(path); if (!data.has(path)) throw new Error('Unexpected request: ' + path); return data.get(path); };
+  return { data, calls, lookup, query: () => readDeployment(content, lookup) };
+}
+test('exact manifest, run attempt and official check link the chain but do not assert production', async () => {
+  const f = fixture(); const result = await f.query();
+  assert.equal(result.state, 'deployment-check-passed'); assert.equal(result.productionVerified, false);
+  assert.deepEqual(result.run, { id: 123, attempt: 2, blogCommit: blog }); assert.deepEqual(result.site, { commit: site, current: true, topologyCommit: topology });
+  assert.equal(result.check?.deploymentId, 'a2e67767-f1cc-454c-a9a9-8c419b20e2ad'); deploymentReportSchema.parse(result);
+  assert.match(deploymentMessage(result), /生产版本尚未核验/); assert.equal(f.calls.length, 7);
+});
+test('missing mirror differs from missing credentials or changed repository visibility', async () => {
+  const absent = fixture(); absent.data.set(`/repos/XAN9xXx/blog-content/git/commits/${content}`, null); assert.equal((await absent.query()).state, 'waiting-mirror');
+  for (const metadata of [null, { full_name: 'XAN9xXx/blog-content', private: false }]) { const f = fixture(); f.data.set('/repos/XAN9xXx/blog-content', metadata); assert.equal((await f.query()).state, 'unavailable'); }
+});
+test('provenance mismatches never become deployment success', async () => {
+  for (const replacement of [{ ...run, head_sha: newer }, { ...run, run_attempt: 3 }, { ...run, id: 999 }, { ...run, path: '.github/workflows/other.yml' }, { ...run, repository: { full_name: 'someone/else' } }]) {
+    const f = fixture(); f.data.set('/repos/XAN9xXx/blog/actions/runs/123/attempts/2', replacement); const result = await f.query(); assert.equal(result.state, 'unavailable'); assert.equal(result.check, null);
+  }
+});
+test('in-progress, failed and cancelled builds remain distinct even when a manifest exists', async () => {
+  for (const [status, conclusion, expected] of [['in_progress', null, 'building'], ['completed', 'failure', 'build-failed'], ['completed', 'cancelled', 'cancelled']] as const) {
+    const f = fixture(); f.data.set('/repos/XAN9xXx/blog/actions/runs/123/attempts/2', { ...run, status, conclusion }); assert.equal((await f.query()).state, expected);assert.ok(!f.calls.some(p => p.includes('check-runs')));
+  }
+});
+test('check identity, SHA and project URL are required, not just a green name', async () => {
+  for (const changed of [{ ...check, app: { id: 1, slug: check.app.slug } }, { ...check, head_sha: newer }, { ...check, details_url: 'https://evil.example/' }, { ...check, details_url: check.details_url.replace('/site/', '/other/') }, { ...check, details_url: check.details_url.replace('https://', 'https://user@') }]) {
+    const f = fixture(); f.data.set(`/repos/XAN9xXx/site/commits/${site}/check-runs?filter=latest&per_page=100`, { check_runs: [changed] }); assert.equal((await f.query()).state, 'awaiting-deployment');
+  }
+});
+test('newer failed check supersedes an older success; pending is not successful', async () => {
+  for (const [status, conclusion, expected] of [['completed', 'failure', 'deployment-failed'], ['in_progress', null, 'deploying']] as const) {
+    const f = fixture(); f.data.set(`/repos/XAN9xXx/site/commits/${site}/check-runs?filter=latest&per_page=100`, { check_runs: [check, { ...check, id: 789, status, conclusion }] }); assert.equal((await f.query()).state, expected);
+  }
+});
+test('bounded history marks earlier site output as historical rather than currently deployed', async () => {
+  const f = fixture();f.data.set('/repos/XAN9xXx/site/git/ref/heads/main', { object: { type: 'commit', sha: newer } });
+  f.data.set(`/repos/XAN9xXx/site/contents/.site-build.json?ref=${newer}`, encoded({ ...manifest, content: { commit: newer, dirty: false } }));
+  f.data.set(`/repos/XAN9xXx/site/commits?sha=${newer}&path=.site-build.json&per_page=10`, [{ sha: newer }, { sha: site }]);
+  const result = await f.query();assert.equal(result.state, 'deployment-check-passed');assert.equal(result.site?.current, false);assert.match(deploymentMessage(result), /历史 site/);
+});
+test('a run title alone can report waiting or failure but never successful deployment', async () => {
+  for (const [status, conclusion, expected] of [['queued', null, 'building'], ['completed', 'failure', 'build-failed'], ['completed', 'success', 'unmatched']] as const) {
+    const f = fixture(); f.data.set(`/repos/XAN9xXx/site/contents/.site-build.json?ref=${site}`, encoded({}));
+    f.data.set(`/repos/XAN9xXx/site/commits?sha=${site}&path=.site-build.json&per_page=10`, []);
+    f.data.set('/repos/XAN9xXx/blog/actions/workflows/assemble.yml/runs?event=workflow_dispatch&per_page=50', { workflow_runs: [{ ...run, status, conclusion }] });
+    const result = await f.query();assert.equal(result.state, expected);assert.equal(result.site, null);assert.equal(result.check, null);
+  }
+});
+test('errors are redacted and unconfigured querying does not perform requests', async () => {
+  const result = await readDeployment(content, async () => { throw new Error('PRIVATE_TOKEN_SENTINEL'); });
+  assert.equal(result.state, 'unavailable');assert.ok(!JSON.stringify(result).includes('PRIVATE_TOKEN'));
+  assert.equal((await new DeploymentReader().query(content)).state, 'unconfigured');
+  await assert.rejects(new DeploymentReader().query('main'));
+});
+test('concurrent and repeated queries share a bounded cache', async () => {
+  const f = fixture();const reader = new DeploymentReader(f.lookup); const values = await Promise.all([reader.query(content), reader.query(content)]);
+  assert.deepEqual(values[0], values[1]);const count=f.calls.length;await reader.query(content);assert.equal(f.calls.length,count);
+});
+test('HTTP adapter sends only GET to GitHub, refuses redirects and limits response size', async () => {
+  let seen = 0;
+  const transport = (async (url: string | URL | Request, options?: RequestInit) => {seen++;assert.equal(url, 'https://api.github.com/repos/XAN9xXx/site');assert.equal(options?.method,'GET');assert.equal(options?.redirect,'error');return new Response('{"private":true}');}) as typeof fetch;
+  const get = githubLookup('TEST_ONLY', transport);assert.deepEqual(await get('/repos/XAN9xXx/site'), { private:true });
+  await assert.rejects(get('https://evil.example'));assert.equal(seen,1);
+  const big=githubLookup('TEST_ONLY',async()=>new Response('x'.repeat(2*1024*1024+1)));await assert.rejects(big('/repos/XAN9xXx/site'),/too large/);
+  const denied=githubLookup('TEST_ONLY',async()=>new Response('SECRET',{status:403}));await assert.rejects(denied('/repos/XAN9xXx/site'),/read unavailable/);
+});
