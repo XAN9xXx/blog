@@ -8,7 +8,7 @@ const blog = fileURLToPath(new URL('../', import.meta.url));
 const root = mkdtempSync(path.join(tmpdir(), 'xan9x-music-browser-'));
 const content = path.join(root, 'content');
 const site = path.join(root, 'site');
-cpSync(path.join(blog, '../xan9x-blog-content'), content, { recursive: true });
+cpSync(path.join(blog, 'tests/fixtures/content'), content, { recursive: true });
 mkdirSync(path.join(content, 'music'), { recursive: true });
 const samples = 8000 * 6;
 const wav = Buffer.alloc(44 + samples * 2);
@@ -21,6 +21,9 @@ const tracks = ['a', 'b'].map(id => {
   return { id, title: '测试音轨 ' + id.toUpperCase(), artist: '仅用于自动化测试', file: `fixture-${id}.wav` };
 });
 writeFileSync(path.join(content, 'music/playlist.json'), JSON.stringify({ version: 1, tracks }));
+// Assembly records content provenance, so the fixture copy becomes its own one-commit repository.
+const git = (...args) => execFileSync('git', ['-C', content, ...args], { stdio: 'ignore' });
+git('init', '--initial-branch=main'); git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture');
 execFileSync(process.execPath, ['--import', 'tsx', 'scripts/assemble.ts'], {
   cwd: blog, stdio: 'inherit', env: { ...process.env, BLOG_CONTENT_SOURCE: content, SITE_DIR: site },
 });

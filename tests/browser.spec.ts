@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
 
+// Assertions below describe tests/fixtures/content, never whatever is currently published.
+test.beforeEach(async ({ request }) => {
+  const notes = await (await request.get('/notes/')).text();
+  const links = [...notes.matchAll(/href="(\/notes\/[^"]+\/)"/g)].map(match => match[1]);
+  if (links.join() !== '/notes/hello/') throw new Error('浏览器测试只针对冻结内容：请用 BLOG_CONTENT_DIR=tests/fixtures/content 启动开发服务器（见 docs/workflow.md）。');
+});
+
 test('published map opens real article; theme and deep links survive host integration', async ({ page }, info) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.emulateMedia({ reducedMotion: 'reduce' });
