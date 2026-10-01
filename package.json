@@ -23,6 +23,7 @@
     "workbench:test:browser": "playwright test --config workbench/playwright.config.ts"
   },
   "dependencies": {
+    "@astrojs/markdown-satteri": "0.4.1",
     "@phosphor-icons/core": "2.1.1",
     "@xan9x/topology": "file:.topology-package/topology.tgz",
     "astro": "^7.3.3",
