@@ -5,11 +5,11 @@
   --surface: #f8f7f2;
   --surface-strong: #ffffff;
   --ink: #1b1d20;
-  --muted: #72736f;
+  --muted: #64655f;
   --quiet: #a1a19a;
   --rule: #d3d1c9;
   --rule-strong: #b8b6ad;
-  --accent: #596edc;
+  --accent: #4659c9;
 
   --software: #657df2;
   --systems: #42aa92;
@@ -39,6 +39,10 @@
     "Cascadia Code",
     "JetBrains Mono",
     Consolas,
+    /* Han characters fall back to the sans faces, not the zh-CN default monospace (NSimSun). */
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Noto Sans SC",
     monospace;
 
   --fs-11: 11px;
