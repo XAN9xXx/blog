@@ -1,10 +1,12 @@
 ---
 import ThemeToggle from './ThemeToggle.astro';
+interface Props { current?: 'notes' }
+const { current } = Astro.props;
 ---
 <header class="wrap site-header">
   <a class="brand" href="/">XAN9x</a>
   <nav class="nav-right" aria-label="主导航">
-    <a href="/notes/">文章</a>
+    <a href="/notes/" aria-current={current === 'notes' ? 'page' : undefined}>文章</a>
     <a href="/#map">地图</a>
     <a href="/#music">音乐</a>
     <a href="https://github.com/XAN9xXx" target="_blank" rel="noreferrer">GitHub</a>
@@ -16,7 +18,7 @@ import ThemeToggle from './ThemeToggle.astro';
   .brand { font: 600 32px/1 var(--sans); letter-spacing: .01em; text-decoration: none; }
   .nav-right { display: flex; align-items: center; gap: 32px; }
   .nav-right a { display: inline-flex; align-items: center; min-height: 44px; font-size: 16px; text-decoration: none; }
-  .nav-right a:hover { color: var(--accent); }
+  .nav-right a:hover, .nav-right a[aria-current="page"] { color: var(--accent); }
   @media (max-width: 600px) {
     .site-header { flex-wrap: wrap; gap: 4px; padding: 16px 0 8px; }
     .brand { font-size: 26px; }

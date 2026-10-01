@@ -1,0 +1,148 @@
+/* Rendered Markdown. Code-block chrome and the copy button come from markup the page adds at runtime,
+   so these rules are global rather than component-scoped. */
+.prose {
+  font-size: 17px;
+  line-height: 1.85;
+  overflow-wrap: break-word;
+}
+
+.prose > :first-child { margin-top: 0; }
+.prose p { margin: 0 0 22px; }
+.prose strong { font-weight: 600; }
+
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-weight: 600;
+  scroll-margin-top: var(--s-24);
+}
+
+.prose h2 { margin: 56px 0 16px; font-size: 24px; line-height: 1.4; }
+.prose h3 { margin: 40px 0 12px; font-size: 19px; line-height: 1.5; }
+.prose h4,
+.prose h5,
+.prose h6 { margin: 32px 0 8px; font-size: 17px; line-height: 1.6; }
+
+.prose ul,
+.prose ol { margin: 0 0 22px; padding-left: 1.5em; }
+.prose li { margin: 0 0 8px; padding-left: 4px; }
+.prose li > ul,
+.prose li > ol { margin: 8px 0 0; }
+
+.prose a { color: var(--accent); text-underline-offset: 3px; }
+
+.prose blockquote {
+  margin: 28px 0;
+  padding: 2px 0 2px 20px;
+  border-left: 2px solid var(--rule-strong);
+  color: var(--muted);
+}
+
+.prose blockquote > :last-child { margin-bottom: 0; }
+.prose hr { margin: 48px 0; border: 0; border-top: var(--hairline); }
+.prose img { max-width: 100%; height: auto; }
+
+.prose :not(pre) > code {
+  padding: 2px 6px;
+  border: var(--hairline);
+  background: var(--surface-strong);
+  font-family: var(--mono);
+  font-size: .86em;
+}
+
+.code-block {
+  margin: 24px 0 28px;
+  border: var(--hairline);
+  background: var(--surface);
+}
+
+.code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding-left: 20px;
+  border-bottom: var(--hairline);
+}
+
+.code-lang { color: var(--muted); font: var(--fs-12) var(--mono); }
+
+.code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-8);
+  min-height: 44px;
+  padding: 0 var(--s-16);
+  border: 0;
+  border-left: var(--hairline);
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-copy:hover { color: var(--accent); }
+.code-copy .done,
+.code-copy[data-copied] .idle { display: none; }
+.code-copy[data-copied] .done,
+.code-copy .idle { display: inline-flex; align-items: center; gap: var(--s-8); }
+
+/* Shiki emits both themes as variables (defaultColor: false); without the theme script it stays light. */
+.prose pre.astro-code {
+  margin: 0;
+  padding: 16px 20px;
+  overflow-x: auto;
+  background: none;
+  font: 14px / 1.7 var(--mono);
+}
+
+/* The UA stylesheet gives <code> the browser's default monospace instead of inheriting. */
+.prose pre code { font: inherit; }
+
+.prose .astro-code,
+.prose .astro-code span { color: var(--shiki-light); }
+
+:root[data-theme="dark"] .prose .astro-code,
+:root[data-theme="dark"] .prose .astro-code span { color: var(--shiki-dark); }
+
+.table-scroll { margin: 24px 0 28px; overflow-x: auto; }
+.prose table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 1.6; }
+
+.prose th {
+  padding: 0 24px 12px 0;
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.prose td {
+  padding: 14px 24px 14px 0;
+  border-bottom: var(--hairline);
+  vertical-align: top;
+}
+
+.prose th:last-child,
+.prose td:last-child { padding-right: 0; }
+/* The first column usually holds short labels; the table region scrolls if one is long. */
+.prose td:first-child { white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .prose { font-size: 16px; }
+  .prose p,
+  .prose ul,
+  .prose ol { margin-bottom: 20px; }
+  .prose h2 { margin: 44px 0 12px; font-size: 21px; }
+  .prose h3 { margin: 32px 0 10px; font-size: 18px; }
+  .prose blockquote { padding-left: 16px; }
+  .code-bar { padding-left: 16px; }
+  .code-copy { padding: 0 14px; }
+  .prose pre.astro-code { padding: 14px 16px; font-size: 13px; }
+  .prose table { font-size: 14px; }
+  .prose td { padding: 12px 20px 12px 0; }
+  .prose th { padding: 0 20px 10px 0; }
+}

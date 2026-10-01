@@ -9,7 +9,9 @@ import volume from '@phosphor-icons/core/assets/regular/speaker-high.svg?raw';
 import muted from '@phosphor-icons/core/assets/regular/speaker-slash.svg?raw';
 import left from '@phosphor-icons/core/assets/regular/arrow-left.svg?raw';
 import right from '@phosphor-icons/core/assets/regular/arrow-right.svg?raw';
-const icons = { sun, moon, play, pause, previous, next, volume, muted, left, right };
+import copy from '@phosphor-icons/core/assets/regular/copy.svg?raw';
+import check from '@phosphor-icons/core/assets/regular/check.svg?raw';
+const icons = { sun, moon, play, pause, previous, next, volume, muted, left, right, copy, check };
 interface Props { name: keyof typeof icons; size?: number }
 const { name, size = 24 } = Astro.props;
 ---

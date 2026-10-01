@@ -106,6 +106,11 @@
                   "type": "index",
                   "description": "真正长期运行的服务。",
                   "children": []
+                },
+                {
+                  "id": "pipeline-selfhosting",
+                  "type": "article",
+                  "label": "Publishing pipeline"
                 }
               ]
             },
@@ -144,6 +149,11 @@
                   "id": "hello",
                   "type": "article",
                   "label": "Hello from Blog-Content"
+                },
+                {
+                  "id": "pipeline-cicd",
+                  "type": "article",
+                  "label": "Publishing pipeline"
                 }
               ]
             },
@@ -264,6 +274,8 @@
     ]
   },
   "articleRefs": {
-    "hello": "hello"
+    "hello": "hello",
+    "pipeline-cicd": "publishing-pipeline",
+    "pipeline-selfhosting": "publishing-pipeline"
   }
 }

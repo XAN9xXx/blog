@@ -1,33 +1,93 @@
 ---
-import { articleHref } from '../../lib/topology-content';
 import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import Icon from '../../components/Icon.astro';
+import { loadContentCatalog } from '../../lib/content-files';
+import { articleHref, publicDirectoryDocument } from '../../lib/topology-content';
+import { articlePlacements, groupByYear, isoDate } from '../../lib/article-navigation';
 
-const articles = (await getCollection('articles'))
-  .filter((entry) => !entry.data.draft)
-  .sort(
-    (a, b) =>
-      b.data.pubDate.valueOf() -
-      a.data.pubDate.valueOf()
-  );
+const articles = await getCollection('articles', ({ data }) => !data.draft);
+const map = publicDirectoryDocument(loadContentCatalog().topology.document);
+const groups = groupByYear(articles).map(group => ({
+  year: group.year,
+  rows: group.articles.map(article => ({ article, date: isoDate(article.data.pubDate), place: articlePlacements(map, article.id)[0] })),
+}));
 ---
+<BaseLayout title="文章 — XAN9x" description="全部公开文章，按发布时间排列。">
+  <SiteHeader current="notes" />
+  <main class="wrap" id="main">
+    <div class="title">
+      <h1>文章</h1>
+      <span class="count">{articles.length} 篇</span>
+    </div>
+    {groups.length === 0 && <p class="empty">暂无公开文章</p>}
+    {groups.map(group => (
+      <section aria-labelledby={`year-${group.year}`}>
+        <h2 id={`year-${group.year}`}>{group.year}</h2>
+        <ol>
+          {group.rows.map(({ article, date, place }) => (
+            <li>
+              <a href={articleHref(article.id)}>
+                <time datetime={date}>{date.slice(5)}</time>
+                <span class="text">
+                  <span class="note-title">{article.data.title}</span>
+                  {article.data.description && <span class="note-summary">{article.data.description}</span>}
+                  {place && (
+                    <span class="place">
+                      <span class="dot" style={place.color ? `background: ${place.color}` : undefined} aria-hidden="true"></span>
+                      {place.labels.join(' / ')}
+                    </span>
+                  )}
+                </span>
+                <span class="arrow"><Icon name="right" size={20} /></span>
+              </a>
+            </li>
+          ))}
+        </ol>
+      </section>
+    ))}
+  </main>
+  <SiteFooter divider />
+</BaseLayout>
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Notes</title>
-  </head>
+<style>
+  main { padding-top: var(--s-48); }
+  .title { display: flex; align-items: baseline; gap: var(--s-16); }
+  h1 { margin: 0; font-size: 32px; font-weight: 600; line-height: 1.4; }
+  .count,
+  h2,
+  time { color: var(--muted); font-family: var(--mono); }
+  .count { font-size: var(--fs-14); }
+  .empty { margin: var(--s-32) 0 0; color: var(--muted); }
 
-  <body>
-    <h1>Notes</h1>
+  section { margin-top: 40px; }
+  h2 { margin: 0; padding-bottom: var(--s-12); border-bottom: 1px solid var(--rule-strong); font-size: var(--fs-14); font-weight: 400; }
+  ol { margin: 0; padding: 0; list-style: none; }
+  li { border-bottom: var(--hairline); }
+  li a { display: grid; grid-template-columns: 128px minmax(0, 1fr) 32px; gap: var(--s-24); align-items: baseline; padding: 28px 0; text-decoration: none; }
+  time { font-size: 13px; }
+  .text { display: flex; flex-direction: column; gap: 6px; }
+  .note-title { font-size: 20px; font-weight: 600; line-height: 1.45; }
+  .note-summary { max-width: 40em; color: var(--muted); font-size: 15px; line-height: 1.6; }
+  .place { display: inline-flex; align-items: center; gap: var(--s-8); color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .arrow { justify-self: end; color: var(--muted); transition: transform var(--dur-1) var(--ease); }
+  li a:hover .note-title { color: var(--accent); }
+  li a:hover .arrow { transform: translateX(4px); }
 
-    <ul>
-      {articles.map((article) => (
-        <li>
-          <a href={articleHref(article.id)}>
-            {article.data.title}
-          </a>
-        </li>
-      ))}
-    </ul>
-  </body>
-</html>
+  @media (max-width: 600px) {
+    main { padding-top: 28px; }
+    .title { gap: var(--s-12); }
+    h1 { font-size: 24px; }
+    .count { font-size: 13px; }
+    section { margin-top: 28px; }
+    h2 { padding-bottom: 10px; font-size: 13px; }
+    li a { display: flex; flex-direction: column; gap: 6px; padding: 20px 0; }
+    time { font-size: var(--fs-12); }
+    .note-title { font-size: var(--fs-18); }
+    .note-summary { font-size: var(--fs-14); }
+    .arrow { display: none; }
+  }
+</style>

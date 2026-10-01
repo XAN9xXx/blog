@@ -47,7 +47,7 @@ test('editing preview retains empty directories and drafts; public preview hides
   assert.ok(!published.root.children!.some(n => n.id === 'software'));
 });
 test('directory editing supports move/order/rebinding and safe recursive removal', t => {
-  const f = setup(t); let w = f.store.get().workspace;
+  const f = setup(t); let w = f.store.get().workspace; const initial = w.articles.length;
   w = applyCommand(w, { type: 'addDirectory', id: 'new-dir', parentId: 'root', kind: 'topic', label: 'New' });
   w = applyCommand(w, { type: 'editDirectory', id: 'new-dir', label: 'Renamed', description: 'Notes' });
   w = applyCommand(w, { type: 'moveNode', id: 'new-dir', parentId: 'root', index: 0 });
@@ -61,9 +61,9 @@ test('directory editing supports move/order/rebinding and safe recursive removal
   w = applyCommand(w, { type: 'removeNode', id: 'new-dir', confirm: true });
   assert.ok(!w.topology.articleRefs.duplicate);
   assert.ok(!w.topology.document.relations.some(edge => edge.includes('new-dir')));
-  assert.equal(w.articles.length, 2, 'removing an entry must not delete its article');
+  assert.equal(w.articles.length, initial + 1, 'removing an entry must not delete its article');
   w = applyCommand(w, { type: 'deleteArticle', id: 'draft', confirm: true });
-  assert.equal(w.articles.length, 1);
+  assert.equal(w.articles.length, initial);
 });
 test('article title and path edits preserve ID, custom frontmatter and canonical links', t => {
   const f = setup(t); let w = f.store.get().workspace;

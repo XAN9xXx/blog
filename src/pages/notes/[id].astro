@@ -1,44 +1,186 @@
 ---
-import {
-  getCollection,
-  render,
-} from 'astro:content';
+import { getCollection, render } from 'astro:content';
+import '../../styles/prose.css';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import Icon from '../../components/Icon.astro';
+import { loadContentCatalog } from '../../lib/content-files';
+import { articleHref, publicDirectoryDocument } from '../../lib/topology-content';
+import { adjacentArticles, articlePlacements, isoDate } from '../../lib/article-navigation';
 
 export async function getStaticPaths() {
-  const articles = await getCollection(
-    'articles',
-    ({ data }) => !data.draft,
-  );
-
-  return articles.map((article) => ({
-    params: {
-      id: article.id,
-    },
-    props: {
-      article,
-    },
-  }));
+  const articles = await getCollection('articles', ({ data }) => !data.draft);
+  return articles.map(article => ({ params: { id: article.id }, props: { article, articles } }));
 }
 
-const { article } = Astro.props;
-const { Content } = await render(article);
+const { article, articles } = Astro.props;
+const { Content, headings } = await render(article);
+const placements = articlePlacements(publicDirectoryDocument(loadContentCatalog().topology.document), article.id);
+const { previous, next } = adjacentArticles(articles, article.id);
+// A contents list only helps once there are several sections to jump between.
+const sections = headings.filter(heading => heading.depth === 2);
+const toc = sections.length >= 3 ? sections : [];
+const date = isoDate(article.data.pubDate);
 ---
+<BaseLayout title={`${article.data.title} — XAN9x`} description={article.data.description || article.data.title}>
+  <SiteHeader current="notes" />
+  <main class="wrap" id="main">
+    <article class="article">
+      <header class="article-head">
+        {placements.length > 0 && (
+          <ul class="placements" aria-label="在地图中的位置">
+            {placements.map(place => (
+              <li>
+                <a href={place.href}>
+                  <span class="dot" style={place.color ? `background: ${place.color}` : undefined} aria-hidden="true"></span>
+                  <span>{place.labels.join(' / ')}</span>
+                  <Icon name="right" size={14} />
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+        <h1>{article.data.title}</h1>
+        {article.data.description && <p class="summary">{article.data.description}</p>}
+        <p class="date"><time datetime={date}>{date}</time></p>
+      </header>
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>{article.data.title}</title>
-  </head>
+      {toc.length > 0 && (
+        <details class="toc-inline">
+          <summary>本文目录 · {toc.length} 节</summary>
+          <ol>{toc.map(heading => <li><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ol>
+        </details>
+      )}
 
-  <body>
-    <article>
-      <a href="/notes/">← Notes</a>
+      <div class="prose">
+        <Content />
+      </div>
 
-      <h1>{article.data.title}</h1>
+      {toc.length > 0 && (
+        <nav class="toc-rail" aria-label="本文目录">
+          <p>本文目录</p>
+          <ol>{toc.map(heading => <li><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ol>
+        </nav>
+      )}
 
-      <p>{article.data.description}</p>
-
-      <Content />
+      {(previous || next) && (
+        <nav class="pager" aria-label="上一篇和下一篇">
+          {previous && (
+            <a class="older" href={articleHref(previous.id)}>
+              <span class="pager-label"><Icon name="left" size={14} />上一篇</span>
+              <span class="pager-title">{previous.data.title}</span>
+            </a>
+          )}
+          {next && (
+            <a class="newer" href={articleHref(next.id)}>
+              <span class="pager-label">下一篇<Icon name="right" size={14} /></span>
+              <span class="pager-title">{next.data.title}</span>
+            </a>
+          )}
+        </nav>
+      )}
     </article>
-  </body>
-</html>
+  </main>
+  <SiteFooter divider />
+
+  <template id="code-copy-template">
+    <button type="button" class="code-copy" aria-live="polite">
+      <span class="idle"><Icon name="copy" size={16} />复制</span>
+      <span class="done"><Icon name="check" size={16} />已复制</span>
+    </button>
+  </template>
+</BaseLayout>
+
+<script>
+  // Progressive enhancement: without script or clipboard access the code stays readable and selectable.
+  const template = document.getElementById('code-copy-template');
+  if (template instanceof HTMLTemplateElement && navigator.clipboard) {
+    for (const bar of document.querySelectorAll('.code-block > .code-bar')) {
+      const code = bar.parentElement?.querySelector('pre code');
+      const button = template.content.firstElementChild?.cloneNode(true);
+      if (!code || !(button instanceof HTMLButtonElement)) continue;
+      let timer: number | undefined;
+      button.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(code.textContent ?? ''); }
+        catch { return; } // Permission denied: leave the button as it was.
+        button.dataset.copied = '';
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => { delete button.dataset.copied; }, 2000);
+      });
+      bar.append(button);
+    }
+  }
+
+  // Mark the section being read: the last heading that has passed the upper third of the window.
+  const rail = document.querySelector('.toc-rail');
+  if (rail) {
+    const links = [...rail.querySelectorAll('a')];
+    const headings = links.map(link => document.getElementById(decodeURIComponent(link.hash.slice(1))));
+    const update = () => {
+      let current = 0;
+      headings.forEach((heading, index) => { if (heading && heading.getBoundingClientRect().top <= innerHeight / 3) current = index; });
+      links.forEach((link, index) => index === current ? link.setAttribute('aria-current', 'location') : link.removeAttribute('aria-current'));
+    };
+    addEventListener('scroll', update, { passive: true });
+    addEventListener('resize', update);
+    update();
+  }
+</script>
+
+<style>
+  .article { display: grid; grid-template-columns: minmax(0, 736px); padding-top: var(--s-48); }
+  .article-head { padding-bottom: var(--s-32); border-bottom: var(--hairline); }
+
+  .placements { display: flex; flex-wrap: wrap; column-gap: 28px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-14); line-height: 1.5; }
+  .placements a { display: inline-flex; align-items: center; gap: var(--s-8); min-height: 44px; color: var(--muted); text-decoration: none; }
+  .placements a:hover { color: var(--accent); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+
+  h1 { margin: var(--s-12) 0 0; font-size: 40px; line-height: 1.3; font-weight: 600; }
+  .summary { max-width: 36em; margin: var(--s-16) 0 0; color: var(--muted); font-size: var(--fs-18); line-height: 1.65; }
+  .date { margin: 20px 0 0; color: var(--muted); font: 13px var(--mono); }
+
+  .prose { padding-top: 40px; }
+
+  .toc-inline { border-bottom: var(--hairline); }
+  .toc-inline summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; color: var(--muted); font-size: var(--fs-14); cursor: pointer; }
+  .toc-inline ol,
+  .toc-rail ol { margin: 0; padding: 0; list-style: none; font-size: var(--fs-14); line-height: 1.5; }
+  .toc-inline ol { margin-bottom: var(--s-8); }
+  .toc-inline a,
+  .toc-rail a { display: flex; align-items: center; min-height: 44px; text-decoration: none; }
+  .toc-rail { display: none; }
+  .toc-rail p { margin: 0 0 var(--s-4); color: var(--muted); font-size: 13px; }
+  .toc-rail a { color: var(--muted); }
+  .toc-rail a[aria-current="location"] { color: var(--ink); font-weight: 600; }
+  .toc-inline a:hover,
+  .toc-rail a:hover { color: var(--accent); }
+
+  .pager { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-24); margin-top: 72px; padding-top: 28px; border-top: var(--hairline); }
+  .pager a { display: flex; flex-direction: column; gap: 6px; min-height: 44px; text-decoration: none; }
+  .pager .newer { grid-column: 2; align-items: flex-end; text-align: right; }
+  .pager-label { display: inline-flex; align-items: center; gap: var(--s-8); color: var(--muted); font-size: 13px; }
+  .pager-title { font-size: 17px; font-weight: 600; line-height: 1.5; }
+  .pager a:hover .pager-title { color: var(--accent); }
+
+  @media (min-width: 1200px) {
+    .article { grid-template-columns: minmax(0, 736px) minmax(0, 1fr) 232px; column-gap: var(--s-48); padding-top: 56px; }
+    .article-head, .prose, .pager { grid-column: 1; }
+    .toc-inline { display: none; }
+    .toc-rail { display: block; grid-column: 3; grid-row: 2 / span 2; align-self: start; position: sticky; top: var(--s-24); margin-top: 44px; padding-left: 20px; border-left: var(--hairline); }
+  }
+
+  @media (max-width: 600px) {
+    .article { padding-top: 28px; }
+    .placements { flex-direction: column; font-size: 13px; }
+    h1 { margin-top: var(--s-8); font-size: 28px; line-height: 1.35; }
+    .summary { margin-top: var(--s-12); font-size: var(--fs-16); }
+    .date { margin-top: var(--s-16); }
+    .article-head { padding-bottom: var(--s-24); }
+    .prose { padding-top: 28px; }
+    .pager { grid-template-columns: minmax(0, 1fr); gap: 0; margin-top: 56px; padding-top: 0; }
+    .pager a { padding: 20px 0; border-bottom: var(--hairline); }
+    .pager .newer { grid-column: 1; align-items: flex-start; text-align: left; }
+  }
+</style>
