@@ -7,6 +7,10 @@ export function uniqueId(label: string, used: Iterable<string>, fallback: string
   while (ids.has(candidate)) candidate = `${base}-${suffix++}`;
   return candidate;
 }
+/** The writer's calendar date; toISOString() would give the UTC date, a day early before 08:00 in UTC+8. */
+export function localDate(now = new Date()): string {
+  return [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part, i) => String(part).padStart(i ? 2 : 4, '0')).join('-');
+}
 export function matchesArticle(article: { id: string; data: { title: string; description: string; draft: boolean } }, query: string, filter: string): boolean {
   if (filter === 'draft' && !article.data.draft || filter === 'ready' && article.data.draft) return false;
   const haystack = `${article.data.title} ${article.data.description} ${article.id}`.toLocaleLowerCase();

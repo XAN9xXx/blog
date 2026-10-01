@@ -6,7 +6,7 @@ import './style.css';
 import type { Workspace, Command } from './model';
 import type { PublicationProgress } from './publication-state';
 import type { PublicationReviewSummary } from './publication-review';
-import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset } from './ui-helpers';
+import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset, localDate } from './ui-helpers';
 
 interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[] } }
 interface State { revision: string; sourceChanged: boolean; workspace: Workspace; articles: Article[] }
@@ -132,7 +132,7 @@ function showArticle(id?: string, fresh = false) {
   $<HTMLFieldSetElement>('article-fields').disabled = empty;
   if (empty) { form('article-form').reset(); updateArticleList(); return; }
   articleSeed = 'note-' + crypto.randomUUID().slice(0, 8);
-  const data = a?.data ?? { id: uniqueId('', state.articles.map(a => a.id), articleSeed), title: '', description: '', pubDate: new Date().toISOString(), draft: true, topics: [] };
+  const data = a?.data ?? { id: uniqueId('', state.articles.map(a => a.id), articleSeed), title: '', description: '', pubDate: localDate(), draft: true, topics: [] };
   for (const name of ['id', 'title', 'description'] as const) field('article-form', name).value = data[name];
   field('article-form', 'id').readOnly = !fresh;
   field('article-form', 'path').value = a?.path ?? 'articles/' + data.id + '.md';

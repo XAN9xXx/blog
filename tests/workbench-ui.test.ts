@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset } from '../workbench/ui-helpers';
+import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset, localDate } from '../workbench/ui-helpers';
+
+test('default article date is the local calendar date, not the UTC date', t => {
+  // Pin the writer's zone so the check also fails under a UTC CI runner: 07:30 on 1 Oct in UTC+8 is still 30 Sep in UTC.
+  const zone = process.env.TZ; process.env.TZ = 'Asia/Shanghai';
+  t.after(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
+  const early = new Date('2026-09-30T23:30:00Z');
+  assert.equal(early.toISOString().slice(0, 10), '2026-09-30');
+  assert.equal(localDate(early), '2026-10-01');
+  assert.equal(localDate(new Date('2026-01-05T15:59:00Z')), '2026-01-05');
+});
 
 test('UI identifiers are editable safe defaults, including non-Latin titles', () => {
   assert.equal(uniqueId('My first note!', [], 'note-abc'), 'my-first-note');
