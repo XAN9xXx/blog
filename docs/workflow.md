@@ -50,7 +50,7 @@ npm run build
 npm run dev -- --background
 ~~~
 
-npm test 与工作台浏览器夹具只使用 tests/fixtures/content（内容仓库 747915f 的冻结副本），不读取相邻或 CI 检出的真实内容；真实内容由 check、validate:content、assemble 与 build 校验。发布文章不应改变单元测试结果；用例需要新的内容形态时，显式修改夹具并同步调整断言。
+npm test、工作台浏览器夹具、站点浏览器测试与音乐夹具只使用 tests/fixtures/content（内容仓库 747915f 的冻结副本），不读取相邻或 CI 检出的真实内容；组装时整个 tests/ 都不进入 site。真实内容由 check、validate:content、assemble 与 build 校验。发布文章不应改变单元测试结果；用例需要新的内容形态时，显式修改夹具并同步调整断言。
 
 首次初始化且尚无提交时，commit=null 只允许本地打包，CI 明确失败。
 正常升级：先在地图仓库提交并批准推送，再将 topology-source.json 指向该 SHA；运行：
@@ -61,8 +61,8 @@ npm ci
 ~~~
 
 --update-lock 只用于显式升级；CI 禁用此选项。普通打包发现 integrity 不匹配就失败。
-浏览器回归：启动 4321 端口后运行 npm run test:browser。
-Windows 使用隔离无头 Edge；Linux 需准备 Playwright Chromium 和系统依赖。
+浏览器回归：先停掉真实内容预览（同一项目同时只能有一个开发服务器），用 `BLOG_CONTENT_DIR=tests/fixtures/content npm run dev -- --background` 在 4321 端口启动冻结内容，再运行 npm run test:browser；每个用例开头会核对文章列表，不是冻结内容就直接失败。
+Windows 默认使用隔离无头 Edge，可用 `BLOG_TEST_BROWSER=chrome` 改用 Chrome；Linux 需准备 Playwright Chromium 和系统依赖。
 博客使用 TypeScript 6，以符合 @astrojs/check 当前 peer 范围；地图继续独立使用 TypeScript 7。
 
 ## 内容契约
@@ -131,7 +131,7 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 - 缺失绑定、引用不存在的文章、重复 ID、无效关系会阻止构建；草稿及其文章节点不进入公开产物。
 - 同一文章可通过不同节点出现在多个分支；移除一个目录入口不等于删除文章文件。
 - 当前浏览器行为是选择文章节点显示详情面板，再通过“打开内容”进入文章。已有端到端测试覆盖真实文章打开和浏览器返回。
-- 独立工作台现已提供目录树、文章编辑、私有保存和地图预览；公开站点不含编辑接口。工作台已部署到阿里云；从工作台到内容仓库的显式发布已于 2026-09-30 开启，首次真实发布待验收。
+- 独立工作台现已提供目录树、文章编辑、私有保存和地图预览；公开站点不含编辑接口。工作台已部署到阿里云；从工作台到内容仓库的显式发布已于 2026-09-30 开启，2026-10-01 首次真实发布已验收（记录见“独立执行器当前落地范围”）。
 
 ### 编辑规则与当前边界
 
@@ -156,7 +156,7 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 
 工作台是 `workbench/` 下独立 Node 服务，不是 Astro 公开路由。普通保存不修改内容仓库、不提交 Git、不推送 main，也不会触发站点组装。它只写入权限隔离的私有快照。
 
-已实现：单用户密码登录或显式 SSH 隧道免密、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。显式确认、作业查询、发布后基线推进及按发布作业只读查询构建与 Cloudflare 部署状态的代码已部署阿里云；2026-09-30 经用户同意开启生产确认推送，首次真实发布及真实提交后的恢复待验收，此前只在隔离夹具中验证。
+已实现：单用户密码登录或显式 SSH 隧道免密、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。显式确认、作业查询、发布后基线推进及按发布作业只读查询构建与 Cloudflare 部署状态的代码已部署阿里云；2026-09-30 经用户同意开启生产确认推送，2026-10-01 首次真实发布（正式文章）已端到端验收；含草稿的真实发布和真实提交后的异常恢复尚未在生产中发生，仍只在隔离夹具中验证。
 未实现：内容源变更自动合并、快照图形化导入、媒体上传、关系边的独立编辑界面。稿件分为“草稿 / 定稿”（存储仍使用 draft 布尔值）；定稿只影响模拟公开预览，不代表已发布。保存状态独立显示，发布通道未接通时不伪造线上状态。
 RSS/sitemap/canonical 所需站点域名、移动端地图可读性和项目内容模型仍是后续工作。
 
@@ -171,11 +171,12 @@ Cloudflare Pages 单资源限制依据：https://developers.cloudflare.com/pages
 验证步骤：
 
 1. `npm run check && npm test && npm run build`。
-2. `npm run dev -- --background`，打开本地 4321 端口；检查空状态、主题切换、地图钻取和文章入口。
-3. 使用 `node tests/create-music-fixture.mjs` 创建临时组装站点和两段测试 WAV（不会修改正式内容或 `xan9x-site`）。按输出进入临时站点运行离线安装、构建和后台服务。
-4. 指定 `BLOG_MUSIC_TEST_URL=http://127.0.0.1:4324` 后运行 `npm run test:browser`。Windows 验证使用独立无头 Edge，WSL 需自行安装对应 Playwright 浏览器。未指定 fixture URL 时两项音频测试会明确跳过。
-5. 浏览器测试覆盖播放/暂停、进度、音量/静音、切歌、结束后顺序播放、错误恢复、空状态、窄屏及原地图回归。测试 WAV 只在临时目录，不进入生产歌单。
-6. 临时站点验证完在其目录运行 `npm run dev -- stop`，正式本地预览可继续保留。
+2. 人工预览真实内容：`npm run dev -- --background`，打开本地 4321 端口；检查空状态、主题切换、地图钻取和文章入口。
+3. 自动化测试改用冻结内容：在博客目录 `npm run dev -- stop`，再 `BLOG_CONTENT_DIR=tests/fixtures/content npm run dev -- --background`。
+4. 使用 `node tests/create-music-fixture.mjs` 从同一份冻结内容创建临时组装站点和两段测试 WAV（不会修改正式内容或 `xan9x-site`）。按输出进入临时站点运行离线安装、构建和后台服务。
+5. 指定 `BLOG_MUSIC_TEST_URL=http://127.0.0.1:4324` 后运行 `npm run test:browser`。Windows 默认使用独立无头 Edge，`BLOG_TEST_BROWSER=chrome` 改用 Chrome；WSL 需自行安装对应 Playwright 浏览器。未指定 fixture URL 时两项音频测试会明确跳过。
+6. 浏览器测试覆盖播放/暂停、进度、音量/静音、切歌、结束后顺序播放、错误恢复、空状态、窄屏、404 页面及原地图回归。测试 WAV 只在临时目录，不进入生产歌单。
+7. 验证完在临时站点和博客目录分别运行 `npm run dev -- stop`；需要时按第 2 步重新启动真实内容预览。
 
 音乐不自动播放、无跨页持久播放，不含上传界面；这些不属于本次首页改版。大文件若超过 Pages 限额，需要另行确认站内对象存储方案，当前不自动接入外部服务。
 
@@ -209,7 +210,7 @@ npm run workbench:start
 | WORKBENCH_CONTENT_DIR | 相邻内容仓库；只读导入文章和 topology.json，不读取 Git 凭据 |
 | WORKBENCH_STATE_DIR | 引擎内 .workbench；VPS 建议 /var/lib/xan9x-workbench |
 
-仓库内状态只能位于 `.workbench/`；不能放到内容源、public、src、dist 或生成 site 中。工作台代码、构建产物、私有状态及工作台测试均由组装脚本排除。不要把真实环境文件放入公开资源目录。
+仓库内状态只能位于 `.workbench/`；不能放到内容源、public、src、dist 或生成 site 中。工作台代码、构建产物、私有状态及全部测试（含内容夹具）均由组装脚本排除。不要把真实环境文件放入公开资源目录。
 
 ### 工作台操作流程
 
@@ -416,7 +417,8 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 - Web 配置 `WORKBENCH_PUBLISHER_SOCKET=/run/xan9x-publisher/review.sock`，与 `WORKBENCH_REVIEW_*` 离线配置互斥。网页入口仍用原来的认证、同源和 CSRF 校验；Unix socket 没有 TCP 监听端口。
 - 生产版本开放 `/status`、`/prepare`、`/jobs/<id>`、`/deployment` 和只观察结果的 `/reconcile`。2026-09-30 起生产入口将 `publishEnabled` 设为 true 并显式允许确认，`/confirm` 随之注册；库的默认值仍为关闭，只有显式开启的入口才注册确认接口。核对会 fetch 并验证远端 main 在读取期间不变，再检查私有快照的导入基线。成功后最多保留 100 个作业，达到上限需人工审阅清理，不自动丢弃未核对状态。
 - RainYun 的专用 authorized_keys 条目使用 `restrict` 和 root 管理的 `content-publisher` forced command，仅接受指定 content 路径的 upload-pack/receive-pack；其他仓库、shell 和端口转发拒绝。`git-shell-commands/no-interactive-login` 保留 Git 账号禁止交互登录的边界。该 forced command 以 `receive.denyNonFastForwards`、`receive.denyDeletes` 运行 receive-pack：执行器密钥只能快进更新、不能删除引用；仓库配置保持默认，所有者自己的密钥仍可强推。没有改仓库 hooks。
-- 执行器内核已在临时裸仓库验证：无差异不提交、单次 fast-forward、重复确认幂等、远端变化拒绝、草稿完整保留、非托管文件保留、过期/篡改拒绝、拒绝推送后不重试、发布冻结 R 不覆盖后续 R2。确认接口、网页确认和基线推进已在本地临时仓库联调，代码已部署；生产推送于 2026-09-30 开启，**首次真实发布待验收**。
+- 执行器内核已在临时裸仓库验证：无差异不提交、单次 fast-forward、重复确认幂等、远端变化拒绝、草稿完整保留、非托管文件保留、过期/篡改拒绝、拒绝推送后不重试、发布冻结 R 不覆盖后续 R2。确认接口、网页确认和基线推进已在本地临时仓库联调，代码已部署；生产推送于 2026-09-30 开启，首次真实发布已于 2026-10-01 验收（见下条）。
+- 2026-10-01 首次真实发布：用户在工作台核对并确认作业 `40c27e3f`，执行器以 XAN9x Workbench 身份将 content/main 从 `747915f` 快进到 `73ed131`（新增正式文章 `hello-world` 及其地图入口，另含用户编辑的若干目录简介），雨云与 GitHub 镜像一致；接受记录为已推送、基线已推进，无遗留锁。content 触发器按完整 SHA 发起组装 `36831211775`，但该次因博客单元测试直接读取真实内容而失败（未提交 site）；blog `f09363d` 改用冻结夹具后，push 触发的组装 `36833023068` 解析到同一 content，生成 site `9f05df4`，Cloudflare 生产部署 `dcd86f8f` 为 canonical。网页“查询部署状态”与执行器 socket 均返回“已上线”；文章页、文章列表与地图 Software 下的入口均已上线。本次未包含草稿，草稿隐藏仍只由夹具和组装测试覆盖。
 - 异常退出留下 `execution.lock` 时不自动破锁。管理员先停止执行器，读取对应作业阶段、候选 commit 和远端 main 的证据，再决定人工恢复；不能删除锁后盲目重推。`pushing/committed` 的恢复只观察远端，未能证实成功则记为 unknown。
 - 2026-09-29 经批准将 content/main 从 `5fd9d62` 快进至 `37f945a`，雨云与私有 GitHub 镜像一致，补齐 topology.json / 稳定文章 ID。工作台对该基线核对成功：无差异、未提交、未推送；私有快照校验值保持不变。迁移触发既有 Actions 运行 `36545503195`，生成 site `3ce6d0e`，Cloudflare 对应部署成功；部署地址首页和文章页 HTTP 200。此为管理员迁移，不是工作台首次真实发布，也未验收自定义域名。
 
@@ -434,7 +436,7 @@ WORKBENCH_REVIEW_VISIBILITY=unknown
 
 ### CI 输入与发布结果的对应关系
 
-2026-09-29 固定输入切片已推送并验收：blog `f0796e9`、content `747915f`、topology `4792e12`。未指定 SHA 的运行 `36547989814` 与显式指定 SHA 的运行 `36548263665` 均成功；最终 site `b1f5aee` 的来源记录与第二次运行完全对应，Cloudflare 检查成功，部署地址首页与文章 HTTP 200。新版 content 发送端已上线且纯工作流变更按预期不触发，但尚未用一次新的文章提交验收自动发送路径。
+2026-09-29 固定输入切片已推送并验收：blog `f0796e9`、content `747915f`、topology `4792e12`。未指定 SHA 的运行 `36547989814` 与显式指定 SHA 的运行 `36548263665` 均成功；最终 site `b1f5aee` 的来源记录与第二次运行完全对应，Cloudflare 检查成功，部署地址首页与文章 HTTP 200。新版 content 发送端已上线且纯工作流变更按预期不触发；2026-10-01 首次真实发布验收了自动发送路径：`73ed131` 触发的运行 `36831211775` 标题与 checkout 均为该完整 SHA（该次失败于博客单元测试，原因已修复）。
 
 - content 触发器通过 `inputs.content_commit` 传入完整事件 SHA；仅更改 `.github/` 不自动发布。先上线 blog 的新接收端，再上线 content 触发器，不能反过来发送旧工作流不认识的 input。
 - blog 接受可选的完整小写 SHA；未提供时仅查询一次私有 content/main，后续 checkout 使用该固定 SHA，拒绝分支名、短 SHA 和无效输入。凭据只用于固定仓库，不接受客户端仓库地址。
@@ -453,7 +455,7 @@ GitHub 的 workflow_dispatch 支持 ref 和 inputs；具体接入时仍需核验
 
 ### 只读构建与部署查询（已部署）
 
-- 2026-09-30 部署于 blog `d0fb551`，两个只读凭据已安装。以 content `747915f` 对真实 GitHub 与 Cloudflare 直接查询：组装 run `36607294684`（blog `d0fb551`）→ site `f359658` → Pages 生产部署 `d0ecfdf1`，为项目 canonical 部署，结果“已上线”；Pages API 返回完整 40 位 commit、`github:push` 触发与 `deploy/success` 阶段，与代码假设一致。尚无工作台确认的发布作业，网页入口只验收了“无作业时不查询、不联网”；按作业查询待首次真实发布验收。
+- 2026-09-30 部署于 blog `d0fb551`，两个只读凭据已安装。以 content `747915f` 对真实 GitHub 与 Cloudflare 直接查询：组装 run `36607294684`（blog `d0fb551`）→ site `f359658` → Pages 生产部署 `d0ecfdf1`，为项目 canonical 部署，结果“已上线”；Pages API 返回完整 40 位 commit、`github:push` 触发与 `deploy/success` 阶段，与代码假设一致。按作业查询已于 2026-10-01 首次真实发布验收：作业 `40c27e3f`（content `73ed131`）→ run `36833023068`（blog `f09363d`）→ site `9f05df4` → Pages 部署 `dcd86f8f`，网页入口与执行器 socket 均返回“已上线”、`productionVerified` 为 true。
 - 查询只绑定最近已接受作业中、已证实推送的 content commit。浏览器只提交空对象，不能指定 commit、仓库或 URL；Web 适配器查本地接受记录，worker 以作业 ID 查自己的记录，再查询固定的 GitHub 仓库。
 - 两个只读凭据都只在独立 worker 内使用，不由 Web 进程持有，不进浏览器、快照、日志或生成 site。GitHub token 放在 `/etc/xan9x-publisher/github-read-token`；Cloudflare 凭据放在 `/etc/xan9x-publisher/cloudflare-pages-read`，是含账户 ID 与 token 的 JSON，账户 ID 因此不进入公开仓库。两者所有者均为 `xan9x-publisher`、权限 `0400`，不得为符号链接或开放组/其他用户权限。缺少 GitHub 凭据时返回“未配置”；只缺 Cloudflare 凭据时核验到构建产物为止，并显示未配置 Cloudflare。Cloudflare 文件格式无效时执行器拒绝启动，错误信息不回显文件内容。缺少凭据不影响保存和核对。
 - 先核验私有 content/site 的读取访问，再确认镜像 commit 是否存在。读取 site/main 的 `.site-build.json`，必要时最多查最近 10 个修改该文件的提交；依据 manifest 精确查询 Actions run ID / attempt，核对 blog SHA、工作流路径、content SHA 和 topology 来源。找不到产物时，最多查 50 个显式 dispatch 作业，运行标题只作候选，不能凭标题或 Actions 成功宣称部署成功。
