@@ -12,7 +12,8 @@ const blogDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const contentDir = path.resolve(process.env.BLOG_CONTENT_SOURCE ?? path.join(blogDir, '../xan9x-blog-content'));
 const siteDir = path.resolve(process.env.SITE_DIR ?? path.join(blogDir, '../xan9x-site'));
 const archive = path.join(blogDir, '.topology-package/topology.tgz');
-const excludedBlogEntries = new Set(['.git', '.github', '.astro', 'dist', 'node_modules', 'docs',
+// Tests (and their content fixture) never run in the site; copying them only churns site commits and deploys.
+const excludedBlogEntries = new Set(['.git', '.github', '.astro', 'dist', 'node_modules', 'docs', 'tests',
   '.topology-package', 'test-results', 'playwright-report', 'design-qa.md', 'workbench', '.workbench']);
 const assetDirectories = ['assets', 'music', 'topics', 'projects'];
 
@@ -93,7 +94,7 @@ function assemble(): void {
   cpSync(blogDir, siteDir, { recursive: true, filter(source) {
     const relative = path.relative(blogDir, source);
     const first = relative.split(path.sep)[0]!;
-    return !relative || (!excludedBlogEntries.has(first) && !relative.startsWith('tests' + path.sep + 'workbench') && !first.startsWith('.env'));
+    return !relative || (!excludedBlogEntries.has(first) && !first.startsWith('.env'));
   } });
   mkdirSync(path.join(siteDir, '.topology-package'), { recursive: true });
   cpSync(archive, path.join(siteDir, '.topology-package/topology.tgz'));
