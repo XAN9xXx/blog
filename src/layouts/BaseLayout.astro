@@ -4,12 +4,16 @@ import '../styles/global.css';
 interface Props {
   title?: string;
   description?: string;
+  /** Pages that must not be indexed (the 404 page) get no canonical address. */
+  noindex?: boolean;
 }
 
 const {
   title = 'XAN9x',
   description = 'Software, systems, open source and technical notes.',
+  noindex = false,
 } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
 ---
 
 <!doctype html>
@@ -26,6 +30,10 @@ const {
       name="description"
       content={description}
     />
+
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical.href} />}
+
+    <link rel="alternate" type="application/rss+xml" title="XAN9x" href="/rss.xml" />
 
     <script is:inline>
       (function () {

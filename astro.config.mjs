@@ -5,6 +5,8 @@ import { articleMarkdown } from './src/lib/article-markdown.ts';
 
 // https://astro.build/config
 export default defineConfig({
+  // Canonical links, the feed and the sitemap all resolve against this address.
+  site: 'https://blog.xan9x.com',
   devToolbar: { enabled: false },
   markdown: {
     processor: satteri({ hastPlugins: [articleMarkdown] }),

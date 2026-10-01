@@ -273,3 +273,32 @@ test('article and list pages fit every width; narrow screens fold the contents l
   await page.goto('/notes/');
   await page.screenshot({ path: info.outputPath('notes-390.png'), fullPage: true, animations: 'disabled' });
 });
+
+test('pages declare their canonical address and feed; the feed, sitemap and robots.txt are well formed', async ({ page }) => {
+  await page.goto('/notes/publishing-pipeline/');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://blog.xan9x.com/notes/publishing-pipeline/');
+  await expect(page.locator('link[rel="alternate"][type="application/rss+xml"]')).toHaveAttribute('href', '/rss.xml');
+  await expect(page.getByRole('contentinfo').getByRole('link', { name: 'RSS' })).toHaveAttribute('href', '/rss.xml');
+  await page.goto('/');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://blog.xan9x.com/');
+
+  const parsed = await page.evaluate(async () => {
+    const xml = async (path: string) => new DOMParser().parseFromString(await (await fetch(path)).text(), 'application/xml');
+    const feed = await xml('/rss.xml'); const sitemap = await xml('/sitemap.xml');
+    return {
+      errors: [feed, sitemap].map(doc => doc.getElementsByTagName('parsererror').length),
+      items: [...feed.querySelectorAll('item')].map(item => [item.querySelector('link')?.textContent, item.getElementsByTagName('content:encoded')[0]?.textContent?.includes('<h2') ?? false]),
+      locs: [...sitemap.querySelectorAll('loc')].map(loc => loc.textContent),
+      robots: await (await fetch('/robots.txt')).text(),
+    };
+  });
+  expect(parsed.errors).toEqual([0, 0]);
+  expect(parsed.items).toEqual([['https://blog.xan9x.com/notes/publishing-pipeline/', true], ['https://blog.xan9x.com/notes/hello/', true]]);
+  expect(parsed.locs).toEqual(['https://blog.xan9x.com/', 'https://blog.xan9x.com/notes/', 'https://blog.xan9x.com/notes/publishing-pipeline/', 'https://blog.xan9x.com/notes/hello/']);
+  expect(parsed.robots).toContain('Sitemap: https://blog.xan9x.com/sitemap.xml');
+
+  const missing = await page.goto('/notes/missing-fixture-article/');
+  expect(missing?.status()).toBe(404);
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex');
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
+});

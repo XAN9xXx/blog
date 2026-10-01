@@ -31,7 +31,8 @@ export function articlePlacements(document: TopologyDocument, articleId: string)
 }
 
 interface Dated { id: string; data: { pubDate: Date } }
-const newestFirst = (a: Dated, b: Dated) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf() || a.id.localeCompare(b.id);
+/** The one reading order used by the list, previous/next links and the feed. */
+export const newestFirst = (a: Dated, b: Dated) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf() || a.id.localeCompare(b.id);
 
 /** Published articles in reading order: previous is the next older one, next the next newer one. */
 export function adjacentArticles<T extends Dated>(articles: readonly T[], id: string): { previous?: T; next?: T } {
