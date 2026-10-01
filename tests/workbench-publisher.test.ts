@@ -13,7 +13,7 @@ import { WorkspaceStore } from '../workbench/store';
 import { MAX_PLAN_BYTES } from '../workbench/publication-plan';
 async function fixture(t: { after(fn: () => void | Promise<void>): void }) {
   const root = mkdtempSync(path.join(tmpdir(), 'publisher-ipc-')); t.after(() => rmSync(root, { recursive: true, force: true }));
-  const source = path.resolve(import.meta.dirname, '../../xan9x-blog-content'); const content = path.join(root, 'content');
+  const source = path.resolve(import.meta.dirname, 'fixtures/content'); const content = path.join(root, 'content');
   cpSync(source, content, { recursive: true, filter: file => !path.relative(source, file).split(path.sep).some(part => part.startsWith('.')) });
   const git = (...args: string[]) => execFileSync('git', ['-C', content, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   git('init', '--initial-branch=main'); git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture');

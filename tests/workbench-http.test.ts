@@ -13,7 +13,7 @@ const password = 'test-only-workbench-password';
 const hash = passwordHash(password);
 async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example', authMode: 'password' | 'ssh' = 'password', bind = '127.0.0.1', publicationReview?: Parameters<typeof createWorkbenchServer>[0]['publicationReview']) {
   const root = mkdtempSync(path.join(tmpdir(), 'workbench-http-'));
-  const content = path.join(root, 'content'); cpSync(path.resolve(import.meta.dirname, '../../xan9x-blog-content'), content, { recursive: true });
+  const content = path.join(root, 'content'); cpSync(path.resolve(import.meta.dirname, 'fixtures/content'), content, { recursive: true });
   writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>Login only</title>');
   const store = new WorkspaceStore(content, path.join(root, 'private'));
   const server = createWorkbenchServer({ store, origin, authMode, publicationReview, passwordHash: authMode === 'password' ? await hash : undefined, assets: root });

@@ -50,6 +50,8 @@ npm run build
 npm run dev -- --background
 ~~~
 
+npm test 与工作台浏览器夹具只使用 tests/fixtures/content（内容仓库 747915f 的冻结副本），不读取相邻或 CI 检出的真实内容；真实内容由 check、validate:content、assemble 与 build 校验。发布文章不应改变单元测试结果；用例需要新的内容形态时，显式修改夹具并同步调整断言。
+
 首次初始化且尚无提交时，commit=null 只允许本地打包，CI 明确失败。
 正常升级：先在地图仓库提交并批准推送，再将 topology-source.json 指向该 SHA；运行：
 

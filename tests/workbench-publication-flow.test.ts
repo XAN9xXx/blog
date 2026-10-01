@@ -13,7 +13,7 @@ import { WorkspaceStore } from '../workbench/store';
 import type { PublicationReviewSummary } from '../workbench/publication-review';
 async function fixture(t: { after(fn: () => unknown): void }, enabled = true) {
   const root = mkdtempSync(path.join(tmpdir(), 'publication-flow-'));
-  const source = path.resolve(import.meta.dirname, '../../xan9x-blog-content'); const content = path.join(root, 'content');
+  const source = path.resolve(import.meta.dirname, 'fixtures/content'); const content = path.join(root, 'content');
   cpSync(source, content, { recursive: true, filter: file => !path.relative(source, file).split(path.sep).some(part => part.startsWith('.')) });
   const git = (where: string, ...args: string[]) => execFileSync('git', ['-C', where, ...args], { encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
   git(content, 'init', '--initial-branch=main'); git(content, 'add', '.'); git(content, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'baseline');

@@ -11,7 +11,7 @@ import { createPublicationPlan } from '../workbench/publication-plan';
 import { readPublicationBaseline } from '../workbench/publication-git';
 function fixture(t: { after(fn: () => void): void }, enabled = true) {
   const root = mkdtempSync(path.join(tmpdir(), 'publication-executor-')); t.after(() => rmSync(root, { recursive: true, force: true }));
-  const source = path.resolve(import.meta.dirname, '../../xan9x-blog-content'); const content = path.join(root, 'content');
+  const source = path.resolve(import.meta.dirname, 'fixtures/content'); const content = path.join(root, 'content');
   cpSync(source, content, { recursive: true, filter: file => !path.relative(source, file).split(path.sep).some(part => part.startsWith('.')) });
   const git = (where: string, ...args: string[]) => execFileSync('git', ['-C', where, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   writeFileSync(path.join(content, 'preserved.txt'), 'Unmanaged asset\n');

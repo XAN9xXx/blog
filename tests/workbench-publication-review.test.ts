@@ -8,7 +8,7 @@ import { PublicationReview, publicationReviewConfig } from '../workbench/publica
 import { WorkspaceStore } from '../workbench/store';
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(path.join(tmpdir(), 'publication-review-')); t.after(() => rmSync(root, { recursive: true, force: true }));
-  const source = path.resolve(import.meta.dirname, '../../xan9x-blog-content'); const content = path.join(root, 'content');
+  const source = path.resolve(import.meta.dirname, 'fixtures/content'); const content = path.join(root, 'content');
   cpSync(source, content, { recursive: true, filter: file => !path.relative(source, file).split(path.sep).some(part => part.startsWith('.')) });
   const git = (...args: string[]) => execFileSync('git', ['-C', content, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   git('init', '--initial-branch=main'); git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture');

@@ -1,0 +1,269 @@
+{
+  "document": {
+    "version": 1,
+    "root": {
+      "id": "root",
+      "label": "XAN9x",
+      "meta": "MAP / 2026",
+      "type": "root",
+      "description": "技术地图根节点。",
+      "children": [
+        {
+          "id": "software",
+          "label": "Software",
+          "meta": "C# / C++ / Tools",
+          "type": "topic",
+          "color": "var(--software)",
+          "description": "应用开发、语言、工具链和实际项目。",
+          "children": [
+            {
+              "id": "dotnet",
+              "label": ".NET / C#",
+              "meta": "SDK / runtime",
+              "type": "index",
+              "description": "SDK、运行时行为和真实 C# 项目。",
+              "children": []
+            },
+            {
+              "id": "cpp",
+              "label": "Modern C++",
+              "meta": "C++23 / STL",
+              "type": "index",
+              "description": "现代 C++、标准库、工具链和所有权。",
+              "children": []
+            },
+            {
+              "id": "desktop",
+              "label": "Desktop",
+              "meta": "WinUI / Avalonia",
+              "type": "index",
+              "description": "桌面 UI、播放器与应用结构。",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "systems",
+          "label": "Systems / Linux",
+          "meta": "Debian / systemd / networking",
+          "type": "topic",
+          "color": "var(--systems)",
+          "description": "Linux 系统、网络、存储和长期运行。",
+          "children": [
+            {
+              "id": "debian",
+              "label": "Debian",
+              "meta": "server / packages",
+              "type": "index",
+              "description": "家用服务器、软件包和系统维护。",
+              "children": []
+            },
+            {
+              "id": "systemd",
+              "label": "systemd",
+              "meta": "services / timers",
+              "type": "index",
+              "description": "服务、timer、journal 与长期运行。",
+              "children": []
+            },
+            {
+              "id": "networking",
+              "label": "Networking",
+              "meta": "NAT / route / ICMP",
+              "type": "index",
+              "description": "NAT、路由、ICMP 与远程访问。",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "infrastructure",
+          "label": "Infrastructure",
+          "meta": "deployment / CI/CD / cloud",
+          "type": "topic",
+          "color": "var(--infra)",
+          "description": "部署、自托管、云与自动化如何真正串起来。",
+          "children": [
+            {
+              "id": "selfhosting",
+              "label": "Self-hosting",
+              "meta": "services / homelab",
+              "type": "index",
+              "description": "实际运行的小型服务和家用基础设施。",
+              "children": [
+                {
+                  "id": "vps",
+                  "label": "VPS",
+                  "meta": "RainYun / Aliyun",
+                  "type": "index",
+                  "description": "不同 VPS 的角色划分。",
+                  "children": []
+                },
+                {
+                  "id": "services",
+                  "label": "Services",
+                  "meta": "systemd / reverse proxy",
+                  "type": "index",
+                  "description": "真正长期运行的服务。",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "cicd",
+              "label": "CI / CD",
+              "meta": "pipeline / deploy",
+              "type": "index",
+              "description": "把提交、检查、构建和部署串成流水线。",
+              "children": [
+                {
+                  "id": "git",
+                  "label": "Git",
+                  "meta": "bare repo / hooks",
+                  "type": "index",
+                  "description": "自托管 Git 与镜像。",
+                  "children": []
+                },
+                {
+                  "id": "gha",
+                  "label": "GitHub Actions",
+                  "meta": "CI gate",
+                  "type": "index",
+                  "description": "检查、构建与部署前置条件。",
+                  "children": []
+                },
+                {
+                  "id": "pages",
+                  "label": "Cloudflare Pages",
+                  "meta": "deploy",
+                  "type": "index",
+                  "description": "静态站最终发布面。",
+                  "children": []
+                },
+                {
+                  "id": "hello",
+                  "type": "article",
+                  "label": "Hello from Blog-Content"
+                }
+              ]
+            },
+            {
+              "id": "infra-network",
+              "label": "Networking",
+              "meta": "Tunnel / DNS",
+              "type": "index",
+              "description": "基础设施中的网络入口和域名。",
+              "children": [
+                {
+                  "id": "cf-tunnel",
+                  "label": "Cloudflare Tunnel",
+                  "meta": "remote entry",
+                  "type": "index",
+                  "description": "无公网 IPv4 时的安全入口。",
+                  "children": []
+                },
+                {
+                  "id": "dns",
+                  "label": "DNS",
+                  "meta": "DoH / proxy",
+                  "type": "index",
+                  "description": "解析、DoH 与代理。",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "opensource",
+          "label": "Open Source",
+          "meta": "contribution / maintenance",
+          "type": "topic",
+          "color": "var(--oss)",
+          "description": "Issue、代码阅读、PR、review 和长期参与。",
+          "children": [
+            {
+              "id": "sentry",
+              "label": "sentry-dotnet",
+              "meta": ".NET SDK",
+              "type": "index",
+              "description": "围绕 Sentry .NET SDK 的代码阅读和贡献。",
+              "children": []
+            },
+            {
+              "id": "oss-workflow",
+              "label": "Contribution",
+              "meta": "issue / PR / review",
+              "type": "index",
+              "description": "从找 issue 到 review 的完整过程。",
+              "children": []
+            },
+            {
+              "id": "gnu",
+              "label": "GNU",
+              "meta": "GCC ecosystem",
+              "type": "index",
+              "description": "GCC、gccrs 与 GNU 相关贡献准备。",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "compilers",
+          "label": "Compilers",
+          "meta": "GCC / gccrs / analysis",
+          "type": "topic",
+          "color": "var(--compiler)",
+          "description": "GCC、Rust 前端、静态分析和诊断。",
+          "children": [
+            {
+              "id": "gcc",
+              "label": "GCC",
+              "meta": "build / architecture",
+              "type": "index",
+              "description": "GCC 构建、源码结构与贡献入口。",
+              "children": []
+            },
+            {
+              "id": "gccrs",
+              "label": "gccrs",
+              "meta": "Rust frontend",
+              "type": "index",
+              "description": "GCC Rust 前端的构建、实验和贡献准备。",
+              "children": []
+            },
+            {
+              "id": "analyzer",
+              "label": "-fanalyzer",
+              "meta": "static analysis",
+              "type": "index",
+              "description": "GCC 静态分析器相关学习和贡献记录。",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "relations": [
+      [
+        "git",
+        "oss-workflow"
+      ],
+      [
+        "cf-tunnel",
+        "networking"
+      ],
+      [
+        "gha",
+        "oss-workflow"
+      ],
+      [
+        "systemd",
+        "services"
+      ]
+    ]
+  },
+  "articleRefs": {
+    "hello": "hello"
+  }
+}

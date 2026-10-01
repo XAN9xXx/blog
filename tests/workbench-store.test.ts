@@ -10,7 +10,7 @@ function setup(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(path.join(tmpdir(), 'blog-workbench-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const content = path.join(root, 'content');
-  cpSync(path.resolve(import.meta.dirname, '../../xan9x-blog-content'), content, { recursive: true });
+  cpSync(path.resolve(import.meta.dirname, 'fixtures/content'), content, { recursive: true });
   const directory = path.join(root, 'private');
   return { root, content, directory, store: new WorkspaceStore(content, directory) };
 }

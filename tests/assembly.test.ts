@@ -4,14 +4,17 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 const blog = fileURLToPath(new URL('../', import.meta.url));
 function setup(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(path.join(tmpdir(), 'xan9x-assembly-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const content = path.join(root, 'content');
-  cpSync(path.join(blog, '../xan9x-blog-content'), content, { recursive: true });
+  cpSync(path.join(blog, 'tests/fixtures/content'), content, { recursive: true });
+  // Assembly records content provenance, so the frozen fixture becomes its own one-commit repository.
+  const git = (...args: string[]) => execFileSync('git', ['-C', content, ...args], { stdio: 'ignore' });
+  git('init', '--initial-branch=main'); git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture');
   const site = path.join(root, 'site');
   const run = (target = site, extra: NodeJS.ProcessEnv = {}) => spawnSync(process.execPath, ['--import', 'tsx', 'scripts/assemble.ts'], {
     cwd: blog, encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', BLOG_CONTENT_SOURCE: content, SITE_DIR: target, ...extra },

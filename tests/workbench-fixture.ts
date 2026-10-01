@@ -12,7 +12,7 @@ import { WorkspaceStore } from '../workbench/store';
 import { createWorkbenchServer } from '../workbench/http';
 const blog = path.resolve(import.meta.dirname, '..');
 const root = mkdtempSync(path.join(tmpdir(), 'workbench-browser-'));
-const source = path.resolve(blog, '../xan9x-blog-content');
+const source = path.resolve(blog, 'tests/fixtures/content');
 const content = path.join(root, 'content');
 cpSync(source, content, { recursive: true, filter: file => !path.relative(source, file).split(path.sep).some(part => part.startsWith('.')) });
 let publicationReview: PublicationReviewProvider | undefined;
