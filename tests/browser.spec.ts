@@ -157,3 +157,12 @@ test('narrow-screen map can be panned, drilled into, opened and returned to root
   await map.getByRole('button', { name: '全部主题' }).click();
   await expect(map.getByRole('button', { name: '上一层' })).toBeDisabled();
 });
+
+test('unknown paths get the 404 page with a 404 status, not the homepage', async ({ page }) => {
+  const response = await page.goto('/notes/missing-fixture-article/');
+  expect(response?.status()).toBe(404);
+  await expect(page.getByRole('heading', { name: '页面不存在' })).toBeVisible();
+  await expect(page.locator('#map')).toHaveCount(0);
+  await page.getByRole('link', { name: '回到技术地图' }).click();
+  await expect(page.locator('#map .xan9x-topology')).toHaveCount(1);
+});

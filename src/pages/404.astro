@@ -1,0 +1,23 @@
+---
+// A top-level 404.html also stops Cloudflare Pages from serving the homepage with 200 for unknown paths.
+import BaseLayout from '../layouts/BaseLayout.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import SectionHeader from '../components/SectionHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+---
+<BaseLayout title="页面不存在 — XAN9x" description="这个地址没有对应的页面。">
+  <SiteHeader />
+  <main class="wrap not-found" id="main">
+    <SectionHeader number="404" title="页面不存在" />
+    <p>这个地址没有对应的页面，可能是链接写错了，或者内容已经移除。</p>
+    <p class="not-found-links"><a href="/">回到技术地图</a><a href="/notes/">查看全部文章</a></p>
+  </main>
+  <SiteFooter />
+</BaseLayout>
+<style>
+  .not-found { padding: var(--s-64) 0 var(--s-96); }
+  .not-found p { max-width: 36em; margin: var(--s-24) 0 0; color: var(--muted); }
+  .not-found-links { display: flex; flex-wrap: wrap; gap: var(--s-24); }
+  .not-found-links a { color: var(--ink); }
+  .not-found-links a:hover { color: var(--accent); }
+</style>
