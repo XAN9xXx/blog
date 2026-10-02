@@ -205,6 +205,8 @@ test('article page links back to every map entry, lists its sections, copies cod
   await expect(pager).toHaveCount(1);
   await expect(pager).toHaveAttribute('href', '/notes/hello/');
   await expect(pager).toContainText('上一篇');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+  await expect(pager.locator('.pager-title')).toHaveAttribute('lang', 'en');
 
   const token = blocks.nth(0).locator('pre .line span').first();
   await page.mouse.move(0, 0);
@@ -221,16 +223,20 @@ test('article page links back to every map entry, lists its sections, copies cod
   await expect(page.locator('#map .node.current')).toHaveAttribute('data-id', 'cicd');
 });
 
-test('a short article keeps a single h1, skips the contents list and links to the newer article', async ({ page }) => {
+test('an English article declares its language, keeps a single h1, skips the contents list and links to the newer article', async ({ page }) => {
   await page.goto('/notes/hello/');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('header.site-header')).toHaveAttribute('lang', 'zh-CN');
+  await expect(page.locator('footer.site-footer')).toHaveAttribute('lang', 'zh-CN');
   await expect(page.locator('h1')).toHaveText(['Hello from Blog-Content']);
   await expect(page.locator('.prose h2')).toHaveText(['Hello']);
-  await expect(page.getByRole('navigation', { name: '本文目录' })).toHaveCount(0);
-  await expect(page.locator('.toc-inline')).toHaveCount(0);
-  const pager = page.getByRole('navigation', { name: '上一篇和下一篇' }).getByRole('link');
+  await expect(page.locator('.toc-rail, .toc-inline')).toHaveCount(0);
+  await expect(page.getByRole('list', { name: 'On the map' }).getByRole('link')).toHaveAttribute('href', '/#topic=infrastructure/cicd');
+  const pager = page.getByRole('navigation', { name: 'Previous and next' }).getByRole('link');
   await expect(pager).toHaveCount(1);
   await expect(pager).toHaveAttribute('href', '/notes/publishing-pipeline/');
-  await expect(pager).toContainText('下一篇');
+  await expect(pager).toContainText('Next');
+  await expect(pager.locator('.pager-title')).toHaveAttribute('lang', 'zh-CN');
 });
 
 test('the notes list groups by year, newest first, with each article\'s map location', async ({ page }, info) => {
@@ -244,6 +250,10 @@ test('the notes list groups by year, newest first, with each article\'s map loca
   await expect(rows.nth(0)).toContainText('09-30');
   await expect(rows.nth(0)).toContainText('Infrastructure / Self-hosting');
   await expect(rows.nth(1)).toContainText('Infrastructure / CI / CD');
+  await expect(rows.nth(1).locator('.lang-tag')).toHaveText('English');
+  await expect(rows.nth(1).locator('.note-title')).toHaveAttribute('lang', 'en');
+  await expect(rows.nth(0).locator('.lang-tag')).toHaveCount(0);
+  await expect(rows.nth(0).locator('.note-title')).not.toHaveAttribute('lang', /./);
   await page.screenshot({ path: info.outputPath('notes-1486-dark.png'), fullPage: true, animations: 'disabled' });
   await page.getByRole('button', { name: '切换主题' }).click();
   await page.mouse.move(0, 0);

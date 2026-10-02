@@ -1,23 +1,27 @@
 ---
 import '../styles/global.css';
+import { DEFAULT_LANG, type Lang } from '../lib/i18n';
 
 interface Props {
   title?: string;
   description?: string;
   /** Pages that must not be indexed (the 404 page) get no canonical address. */
   noindex?: boolean;
+  /** Language of the page content; the site chrome marks itself zh-CN. */
+  lang?: Lang;
 }
 
 const {
   title = 'XAN9x',
   description = 'Software, systems, open source and technical notes.',
   noindex = false,
+  lang = DEFAULT_LANG,
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
 ---
 
 <!doctype html>
-<html lang="zh-CN">
+<html lang={lang}>
   <head>
     <meta charset="UTF-8" />
 

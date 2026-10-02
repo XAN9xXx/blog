@@ -5,6 +5,7 @@ title: Hello from Blog-Content
 description: First cross-repository content test.
 pubDate: 2026-09-21
 draft: false
+lang: en
 ---
 
 # Hello

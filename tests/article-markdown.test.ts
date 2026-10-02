@@ -41,3 +41,8 @@ test('tables scroll inside a labelled, focusable region', async () => {
   const { html } = await render('| a | b |\n| - | - |\n| 1 | 2 |\n');
   assert.match(html, /<div class="table-scroll" tabindex="0" role="region" aria-label="可横向滚动的表格"><table>/);
 });
+
+test('the table region is labelled in the article language', async () => {
+  const { code } = await processor.render('| a |\n| - |\n| 1 |\n', { frontmatter: { lang: 'en' } });
+  assert.match(code, /aria-label="Scrollable table"/);
+});

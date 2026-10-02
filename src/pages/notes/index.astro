@@ -7,12 +7,15 @@ import Icon from '../../components/Icon.astro';
 import { loadContentCatalog } from '../../lib/content-files';
 import { articleHref, publicDirectoryDocument } from '../../lib/topology-content';
 import { articlePlacements, groupByYear, isoDate } from '../../lib/article-navigation';
+import { articleLang, DEFAULT_LANG } from '../../lib/i18n';
 
 const articles = await getCollection('articles', ({ data }) => !data.draft);
 const map = publicDirectoryDocument(loadContentCatalog().topology.document);
 const groups = groupByYear(articles).map(group => ({
   year: group.year,
-  rows: group.articles.map(article => ({ article, date: isoDate(article.data.pubDate), place: articlePlacements(map, article.id)[0] })),
+  rows: group.articles.map(article => ({ article, date: isoDate(article.data.pubDate), place: articlePlacements(map, article.id)[0],
+    // The list itself is zh-CN; other-language titles and summaries carry their own lang.
+    lang: articleLang(article.data) === DEFAULT_LANG ? undefined : articleLang(article.data) })),
 }));
 ---
 <BaseLayout title="文章 — XAN9x" description="全部公开文章，按发布时间排列。">
@@ -27,17 +30,18 @@ const groups = groupByYear(articles).map(group => ({
       <section aria-labelledby={`year-${group.year}`}>
         <h2 id={`year-${group.year}`}>{group.year}</h2>
         <ol>
-          {group.rows.map(({ article, date, place }) => (
+          {group.rows.map(({ article, date, place, lang }) => (
             <li>
               <a href={articleHref(article.id)}>
                 <time datetime={date}>{date.slice(5)}</time>
                 <span class="text">
-                  <span class="note-title">{article.data.title}</span>
-                  {article.data.description && <span class="note-summary">{article.data.description}</span>}
-                  {place && (
+                  <span class="note-title" lang={lang}>{article.data.title}</span>
+                  {article.data.description && <span class="note-summary" lang={lang}>{article.data.description}</span>}
+                  {(place || lang) && (
                     <span class="place">
-                      <span class="dot" style={place.color ? `background: ${place.color}` : undefined} aria-hidden="true"></span>
-                      {place.labels.join(' / ')}
+                      {place && <span class="dot" style={place.color ? `background: ${place.color}` : undefined} aria-hidden="true"></span>}
+                      {place?.labels.join(' / ')}
+                      {lang === 'en' && <span class="lang-tag">English</span>}
                     </span>
                   )}
                 </span>
@@ -73,6 +77,8 @@ const groups = groupByYear(articles).map(group => ({
   .note-summary { max-width: 40em; color: var(--muted); font-size: 15px; line-height: 1.6; }
   .place { display: inline-flex; align-items: center; gap: var(--s-8); color: var(--muted); font-size: 13px; line-height: 1.5; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .lang-tag:not(:first-child) { margin-left: var(--s-8); padding-left: var(--s-12); border-left: var(--hairline); }
+  .lang-tag { font-family: var(--mono); font-size: var(--fs-12); }
   .arrow { justify-self: end; color: var(--muted); transition: transform var(--dur-1) var(--ease); }
   li a:hover .note-title { color: var(--accent); }
   li a:hover .arrow { transform: translateX(4px); }

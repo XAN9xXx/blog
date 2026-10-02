@@ -8,6 +8,7 @@ import Icon from '../../components/Icon.astro';
 import { loadContentCatalog } from '../../lib/content-files';
 import { articleHref, publicDirectoryDocument } from '../../lib/topology-content';
 import { adjacentArticles, articlePlacements, isoDate } from '../../lib/article-navigation';
+import { articleLang, articleText } from '../../lib/i18n';
 
 export async function getStaticPaths() {
   const articles = await getCollection('articles', ({ data }) => !data.draft);
@@ -22,14 +23,18 @@ const { previous, next } = adjacentArticles(articles, article.id);
 const sections = headings.filter(heading => heading.depth === 2);
 const toc = sections.length >= 3 ? sections : [];
 const date = isoDate(article.data.pubDate);
+const lang = articleLang(article.data);
+const text = articleText[lang];
+// Neighbouring titles may be in another language than this page.
+const titleLang = (other: typeof article) => articleLang(other.data) === lang ? undefined : articleLang(other.data);
 ---
-<BaseLayout title={`${article.data.title} — XAN9x`} description={article.data.description || article.data.title}>
+<BaseLayout title={`${article.data.title} — XAN9x`} description={article.data.description || article.data.title} lang={lang}>
   <SiteHeader current="notes" />
   <main class="wrap" id="main">
     <article class="article">
       <header class="article-head">
         {placements.length > 0 && (
-          <ul class="placements" aria-label="在地图中的位置">
+          <ul class="placements" aria-label={text.placements}>
             {placements.map(place => (
               <li>
                 <a href={place.href}>
@@ -48,7 +53,7 @@ const date = isoDate(article.data.pubDate);
 
       {toc.length > 0 && (
         <details class="toc-inline">
-          <summary>本文目录 · {toc.length} 节</summary>
+          <summary>{text.sections(toc.length)}</summary>
           <ol>{toc.map(heading => <li><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ol>
         </details>
       )}
@@ -58,24 +63,24 @@ const date = isoDate(article.data.pubDate);
       </div>
 
       {toc.length > 0 && (
-        <nav class="toc-rail" aria-label="本文目录">
-          <p>本文目录</p>
+        <nav class="toc-rail" aria-label={text.contents}>
+          <p>{text.contents}</p>
           <ol>{toc.map(heading => <li><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ol>
         </nav>
       )}
 
       {(previous || next) && (
-        <nav class="pager" aria-label="上一篇和下一篇">
+        <nav class="pager" aria-label={text.pager}>
           {previous && (
             <a class="older" href={articleHref(previous.id)}>
-              <span class="pager-label"><Icon name="left" size={14} />上一篇</span>
-              <span class="pager-title">{previous.data.title}</span>
+              <span class="pager-label"><Icon name="left" size={14} />{text.previous}</span>
+              <span class="pager-title" lang={titleLang(previous)}>{previous.data.title}</span>
             </a>
           )}
           {next && (
             <a class="newer" href={articleHref(next.id)}>
-              <span class="pager-label">下一篇<Icon name="right" size={14} /></span>
-              <span class="pager-title">{next.data.title}</span>
+              <span class="pager-label">{text.next}<Icon name="right" size={14} /></span>
+              <span class="pager-title" lang={titleLang(next)}>{next.data.title}</span>
             </a>
           )}
         </nav>
@@ -86,8 +91,8 @@ const date = isoDate(article.data.pubDate);
 
   <template id="code-copy-template">
     <button type="button" class="code-copy" aria-live="polite">
-      <span class="idle"><Icon name="copy" size={16} />复制</span>
-      <span class="done"><Icon name="check" size={16} />已复制</span>
+      <span class="idle"><Icon name="copy" size={16} />{text.copy}</span>
+      <span class="done"><Icon name="check" size={16} />{text.copied}</span>
     </button>
   </template>
 </BaseLayout>

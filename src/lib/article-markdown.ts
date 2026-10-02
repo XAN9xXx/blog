@@ -1,5 +1,7 @@
 import type { Element, ElementContent, Nodes, Properties } from 'hast';
 import type { HastPluginDefinition } from 'satteri';
+import type {} from '@astrojs/markdown-satteri'; // Types ctx.data.astro (the frontmatter Astro passes in).
+import { articleText, DEFAULT_LANG } from './i18n';
 
 /**
  * Sätteri hast plugin for article bodies. Astro runs it after Shiki and before it assigns heading IDs,
@@ -35,7 +37,8 @@ export const articleMarkdown: HastPluginDefinition = {
           node as Element,
         ]));
       } else if (node.tagName === 'table') {
-        ctx.wrapNode(node, element('div', { className: ['table-scroll'], tabIndex: 0, role: 'region', ariaLabel: '可横向滚动的表格' }, []));
+        const label = articleText[ctx.data.astro?.frontmatter?.lang === 'en' ? 'en' : DEFAULT_LANG].table;
+        ctx.wrapNode(node, element('div', { className: ['table-scroll'], tabIndex: 0, role: 'region', ariaLabel: label }, []));
       } else if (ctx.data[SHIFT]) {
         ctx.replaceNode(node, element('h' + Math.min(6, Number(node.tagName[1]) + 1), { ...node.properties }, [...node.children]));
       }

@@ -3,7 +3,7 @@ import ThemeToggle from './ThemeToggle.astro';
 interface Props { current?: 'notes' }
 const { current } = Astro.props;
 ---
-<header class="wrap site-header">
+<header class="wrap site-header" lang="zh-CN">
   <a class="brand" href="/">XAN9x</a>
   <nav class="nav-right" aria-label="主导航">
     <a href="/notes/" aria-current={current === 'notes' ? 'page' : undefined}>文章</a>

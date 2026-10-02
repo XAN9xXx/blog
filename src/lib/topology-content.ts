@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseTopology, type TopologyDocument, type TopologyNode } from '@xan9x/topology/schema';
+import { LANGS } from './i18n';
 
 export const contentId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
 export const articleSchema = z.object({
@@ -9,6 +10,8 @@ export const articleSchema = z.object({
   pubDate: z.coerce.date(),
   draft: z.boolean().default(false),
   topics: z.array(contentId).default([]),
+  /** Language of the article text; omitted means the site default (zh-CN). */
+  lang: z.enum(LANGS).optional(),
 });
 export type ArticleData = z.infer<typeof articleSchema>;
 export interface ArticleRecord { id: string; data: ArticleData }
