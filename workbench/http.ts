@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ZodError } from 'zod';
 import { Auth, Sessions } from './auth';
+import type { AccessVerifier } from './access';
 import { WorkspaceStore } from './store';
 import { parseArticle, preview, WorkbenchError } from './model';
 import { confirmationSchema } from './publication-state';
@@ -15,10 +16,12 @@ export function originConfig(value: string) {
   if (url.protocol !== 'https:' && !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw new Error('远程工作台必须使用 HTTPS。');
   return url;
 }
-export function authModeConfig(value: string | undefined, origin: URL): 'password' | 'ssh' {
+export type AuthMode = 'password' | 'ssh' | 'access';
+export function authModeConfig(value: string | undefined, origin: URL): AuthMode {
   const mode = value ?? 'password';
-  if (mode !== 'password' && mode !== 'ssh') throw new Error('WORKBENCH_AUTH_MODE 必须是 password 或 ssh。');
+  if (mode !== 'password' && mode !== 'ssh' && mode !== 'access') throw new Error('WORKBENCH_AUTH_MODE 必须是 password、ssh 或 access。');
   if (mode === 'ssh' && (origin.protocol !== 'http:' || origin.hostname !== '127.0.0.1')) throw new Error('SSH 免密模式仅支持 http://127.0.0.1 的本地转发来源；不能用于公开域名或反向代理。');
+  if (mode === 'access' && origin.protocol !== 'https:') throw new Error('Access 模式只用于 Cloudflare Access 保护的 HTTPS 域名。');
   return mode;
 }
 async function body(request: IncomingMessage, max = 1_000_000): Promise<Record<string, unknown>> {
@@ -34,9 +37,12 @@ async function body(request: IncomingMessage, max = 1_000_000): Promise<Record<s
     return result;
   } catch { throw new WorkbenchError('请求必须是 JSON 对象。'); }
 }
-export function createWorkbenchServer(options: { store: WorkspaceStore; origin: string; passwordHash?: string; authMode?: string; assets: string; publicationReview?: PublicationReviewProvider }) {
+export function createWorkbenchServer(options: { store: WorkspaceStore; origin: string; passwordHash?: string; authMode?: string; access?: Pick<AccessVerifier, 'verify'>; assets: string; publicationReview?: PublicationReviewProvider }) {
   const origin = originConfig(options.origin);
   const mode = authModeConfig(options.authMode, origin);
+  if (mode === 'access' && !options.access) throw new Error('Access 模式必须配置 WORKBENCH_ACCESS_*。');
+  // SSH and Access modes create sessions without a password once the transport has been trusted.
+  const automatic = mode !== 'password';
   const passwordAuth = mode === 'password' ? new Auth(options.passwordHash ?? '') : undefined;
   const auth = passwordAuth ?? new Sessions();
   const cookie = (id: string, maxAge: number) => `workbench_session=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${origin.protocol === 'https:' ? '; Secure' : ''}`;
@@ -54,21 +60,23 @@ export function createWorkbenchServer(options: { store: WorkspaceStore; origin: 
     try {
       if (request.headers.host !== origin.host) throw new WorkbenchError('来源主机不匹配。', 403);
       if (mode === 'ssh' && (request.socket.localAddress !== '127.0.0.1' || request.socket.remoteAddress !== '127.0.0.1')) throw new WorkbenchError('SSH 免密模式只接受回环连接。', 403);
+      // Every request, assets included, must carry a valid assertion: a local process reaching the port cannot forge one.
+      if (mode === 'access') await options.access!.verify(request.headers['cf-access-jwt-assertion']);
       const route = new URL(request.url ?? '/', origin).pathname;
       const method = request.method;
       if (method !== 'GET' && method !== 'POST') throw new WorkbenchError('不支持此方法。', 405);
       if (method === 'POST' && (request.headers.origin !== origin.origin || request.headers['sec-fetch-site'] === 'cross-site')) throw new WorkbenchError('拒绝跨站请求。', 403);
-      if (mode === 'ssh' && route.startsWith('/api/') && ((request.headers.origin !== undefined && request.headers.origin !== origin.origin) || (request.headers['sec-fetch-site'] !== undefined && !['same-origin', 'none'].includes(String(request.headers['sec-fetch-site']))))) throw new WorkbenchError('拒绝其他来源访问工作台接口。', 403);
+      if (automatic && route.startsWith('/api/') && ((request.headers.origin !== undefined && request.headers.origin !== origin.origin) || (request.headers['sec-fetch-site'] !== undefined && !['same-origin', 'none'].includes(String(request.headers['sec-fetch-site']))))) throw new WorkbenchError('拒绝其他来源访问工作台接口。', 403);
       if (method === 'GET' && assets.has(route)) {
         const asset = assets.get(route)!;
         response.setHeader('Content-Type', asset.type); response.end(readFileSync(path.join(options.assets, asset.file))); return;
       }
       if (method === 'POST' && route === '/api/login') {
-        if (!passwordAuth) throw new WorkbenchError('当前使用 SSH 免密模式，不提供密码登录。', 404);
+        if (!passwordAuth) throw new WorkbenchError('当前模式不提供密码登录。', 404);
         const value = await body(request, 4096); const session = await passwordAuth.login(value.password);
         response.setHeader('Set-Cookie', cookie(session.id, 8 * 60 * 60)); json({ csrf: session.csrf, authMode: mode }); return;
       }
-      if (method === 'GET' && route === '/api/session' && mode === 'ssh') {
+      if (method === 'GET' && route === '/api/session' && automatic) {
         let session;
         try { session = auth.session(request.headers.cookie); }
         catch (error) {

@@ -156,7 +156,7 @@ CI 用固定 SHA checkout 地图，关闭该 checkout 的凭据持久化，然�
 
 工作台是 `workbench/` 下独立 Node 服务，不是 Astro 公开路由。普通保存不修改内容仓库、不提交 Git、不推送 main，也不会触发站点组装。它只写入权限隔离的私有快照。
 
-已实现：单用户密码登录或显式 SSH 隧道免密、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。显式确认、作业查询、发布后基线推进及按发布作业只读查询构建与 Cloudflare 部署状态的代码已部署阿里云；2026-09-30 经用户同意开启生产确认推送，2026-10-01 首次真实发布（正式文章）已端到端验收；含草稿的真实发布和真实提交后的异常恢复尚未在生产中发生，仍只在隔离夹具中验证。
+已实现：单用户密码登录、显式 SSH 隧道免密或 Cloudflare Access 单次登录、文章新增/编辑/删除、目录新增/重命名/移动/排序/移除、文章绑定与重新绑定、私有 Markdown 预览、完整/公开两种地图预览、私有快照下载，以及离线发布差异核对 CLI 与网页“发布核对”。显式确认、作业查询、发布后基线推进及按发布作业只读查询构建与 Cloudflare 部署状态的代码已部署阿里云；2026-09-30 经用户同意开启生产确认推送，2026-10-01 首次真实发布（正式文章）已端到端验收；含草稿的真实发布和真实提交后的异常恢复尚未在生产中发生，仍只在隔离夹具中验证。
 未实现：内容源变更自动合并、快照图形化导入、媒体上传、关系边的独立编辑界面。稿件分为“草稿 / 定稿”（存储仍使用 draft 布尔值）；定稿只影响模拟公开预览，不代表已发布。保存状态独立显示，发布通道未接通时不伪造线上状态。
 站点地址固定为 `https://blog.xan9x.com`（astro.config.mjs 的 `site`）。每页带 canonical，404 页改为 noindex 且不带 canonical；构建生成 `/rss.xml`（全文，新到旧）、`/sitemap.xml`（首页、列表与全部文章）和 `/robots.txt`。三者只取文章日期，不写构建时间，内容不变时生成的 site 也不变。移动端地图可读性和项目内容模型仍是后续工作。
 
@@ -205,8 +205,11 @@ npm run workbench:start
 | --- | --- |
 | WORKBENCH_ORIGIN | 浏览器实际使用的来源地址；SSH 转发用 http://127.0.0.1:4325，直接使用远程域名则必须 HTTPS；不能包含路径 |
 | WORKBENCH_PORT | 4325，1024–65535；服务仅监听 127.0.0.1 |
-| WORKBENCH_AUTH_MODE | 默认 password；显式设为 ssh 时允许个人 SSH 隧道免密访问 |
-| WORKBENCH_PASSWORD_HASH | password 模式必填；ssh 模式忽略此值，可保留已有哈希用于恢复 |
+| WORKBENCH_AUTH_MODE | 默认 password；ssh 允许个人 SSH 隧道免密访问；access 用于 Cloudflare Access 保护的 HTTPS 域名 |
+| WORKBENCH_PASSWORD_HASH | password 模式必填；ssh/access 模式忽略此值，可保留已有哈希用于恢复 |
+| WORKBENCH_ACCESS_TEAM_DOMAIN | access 模式必填：`<team>.cloudflareaccess.com`，用于签发方校验和取公钥 |
+| WORKBENCH_ACCESS_AUD | access 模式必填：该 Access 应用的 64 位 AUD 标签 |
+| WORKBENCH_ACCESS_EMAILS | access 模式必填：允许的邮箱，逗号分隔；应与 Access 策略一致 |
 | WORKBENCH_CONTENT_DIR | 相邻内容仓库；只读导入文章和 topology.json，不读取 Git 凭据 |
 | WORKBENCH_STATE_DIR | 引擎内 .workbench；VPS 建议 /var/lib/xan9x-workbench |
 
@@ -235,11 +238,41 @@ npm run workbench:start
 - 删除文章前必须解除所有目录入口；移除目录会连带移除其入口与关系边，但不会删除正文。被文章 topics 引用的分类需先解除引用。
 - 导出包含草稿和正文，属于私有备份，不是可公开发布的 site。常规备份对象是 WORKBENCH_STATE_DIR，不要将其加入公开仓库。
 - 异常终止可能留下 write.lock，服务会拒绝后续保存而不是强行覆盖。只有在确认进程已停止并检查快照后，管理员才能清理遗留锁；不提供自动破锁。
-- 会话保存在内存，空闲 1 小时或建立满 8 小时失效，结束会话立即撤销；密码模式在重启/过期后需重新登录，SSH 模式按下文规则重新建立会话。密码登录有全局速率限制，同一时间只执行一次密码推导。
+- 会话保存在内存，空闲 1 小时或建立满 8 小时失效，结束会话立即撤销；密码模式在重启/过期后需重新登录，SSH 与 Access 模式按下文规则重新建立会话。密码登录有全局速率限制，同一时间只执行一次密码推导。
 
-### 当前部署选择：阿里云 VPS + SSH 本地端口转发
+### 当前入口：Cloudflare Tunnel + Access（access 模式）
 
-工作台先部署在阿里云 VPS，通过 SSH 本地转发访问，不配置公开域名、HTTPS 反向代理或 Cloudflare Tunnel。之前的域名/反向代理前置条件在此阶段不再需要。雨云的裸 Git 仓库、GitHub 镜像与 Cloudflare 的公开博客流水线保持原样，不因工作台换部署主机而迁移。
+工作台部署在阿里云 VPS，经该机已有的远程管理 Cloudflare Tunnel 发布为 HTTPS 子域名，前面由 Cloudflare Access 应用拦截：只有策略允许的邮箱在 Cloudflare 登录后才能到达工作台。VPS 不开放任何入站端口，工作台仍只监听 127.0.0.1。雨云的裸 Git 仓库、GitHub 镜像与公开博客流水线不受影响。
+
+~~~text
+浏览器 https://<工作台域名>
+    → Cloudflare Access（登录，按策略放行）
+    → Cloudflare Tunnel（VPS 上的 cloudflared 主动外连）
+    → 阿里云 VPS 127.0.0.1:4325（工作台，access 模式）
+~~~
+
+- Access 给每个放行的请求附上签名令牌（`Cf-Access-Jwt-Assertion` 请求头）。access 模式对**每个请求**（含页面和脚本）校验：RS256 签名（公钥取自 `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`，缓存一小时，遇到未知密钥 ID 时刷新、30 秒内最多取一次）、签发方、AUD、`type: app`、有效期（容许 60 秒时钟偏差）和邮箱白名单。缺失或无效返回 403；取不到公钥且无缓存时返回 503，不放行。
+- 这样 VPS 上能连到回环端口的其他进程也无法伪造身份；仅靠工作台会话 cookie 不能访问。
+- 校验通过后自动建立工作台会话（与 SSH 模式相同的 HttpOnly / SameSite=Strict / Secure cookie 和 CSRF token），Host、Origin、Fetch Metadata 与写请求 CSRF 校验照常生效；不提供密码登录。
+- 前端收到 401 时自动重建会话并重试一次。Access 登录过期后，接口请求会被 Cloudflare 重定向到登录页，前端表现为“无法连接”，此时先复制未保存内容，再刷新页面重新登录。
+- “退出”撤销工作台会话并跳到 `/cdn-cgi/access/logout`，同时结束 Access 登录。
+- Access 应用的策略和工作台的 `WORKBENCH_ACCESS_EMAILS` 是两道独立的门，改邮箱时两处都要改；AUD 标签在 Access 应用详情里查看，应用重建后会变化。
+
+服务端环境（真实值只写在 VPS 的 `/etc/xan9x-workbench.env`）：
+
+~~~ini
+WORKBENCH_AUTH_MODE=access
+WORKBENCH_ORIGIN=https://<工作台域名>
+WORKBENCH_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+WORKBENCH_ACCESS_AUD=<Access 应用 AUD 标签>
+WORKBENCH_ACCESS_EMAILS=<允许的邮箱>
+~~~
+
+改回 SSH 入口：把 `WORKBENCH_AUTH_MODE` 和 `WORKBENCH_ORIGIN` 改回下文的 ssh 配置并重启工作台；Access 相关变量可以保留。来源只能配置一个，两种入口不能同时使用。
+
+### 备用入口：阿里云 VPS + SSH 本地端口转发
+
+以下是公网入口上线前的部署方式，保留作备用（如 Cloudflare 不可用时）。
 
 ~~~text
 本机浏览器 http://127.0.0.1:4325
@@ -325,7 +358,7 @@ systemctl status xan9x-workbench --no-pager
 4. 重启工作台后重新进入，确认私有保存仍在；关闭 SSH 后本机访问中断，重新建隧道后恢复。
 5. 确认真实内容仓库和公开站点没有因保存发生变更，再单独设计发布候选、差异确认与显式推送流程。当前不存在可调用的发布接口。
 
-将来需要从多设备直接通过域名访问时，再配置 HTTPS 反向代理及相应 WORKBENCH_ORIGIN，不在当前隧道方案中暴露公网 HTTP。
+从多设备直接通过域名访问使用上文的 Cloudflare Tunnel + Access 入口；不要给 SSH 模式配置公网反向代理。
 
 隧道参数依据：[OpenSSH ssh(1)](https://man.openbsd.org/ssh.1)、[ssh_config(5)](https://man.openbsd.org/ssh_config.5)、[sshd_config(5)](https://man.openbsd.org/sshd_config.5)。
 

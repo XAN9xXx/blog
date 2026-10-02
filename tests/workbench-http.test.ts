@@ -7,16 +7,18 @@ import path from 'node:path';
 import { WorkspaceStore } from '../workbench/store';
 import { Auth, Sessions, passwordHash } from '../workbench/auth';
 import { createWorkbenchServer, originConfig, authModeConfig } from '../workbench/http';
+import { AccessVerifier } from '../workbench/access';
+import { accessConfigForTests, accessFixture } from './access-tokens';
 import { renderMarkdown } from '../workbench/markdown';
 import { createPublicationPlan, publicationPlanSummary } from '../workbench/publication-plan';
 const password = 'test-only-workbench-password';
 const hash = passwordHash(password);
-async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example', authMode: 'password' | 'ssh' = 'password', bind = '127.0.0.1', publicationReview?: Parameters<typeof createWorkbenchServer>[0]['publicationReview']) {
+async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://editor.example', authMode: 'password' | 'ssh' | 'access' = 'password', bind = '127.0.0.1', publicationReview?: Parameters<typeof createWorkbenchServer>[0]['publicationReview'], access?: AccessVerifier) {
   const root = mkdtempSync(path.join(tmpdir(), 'workbench-http-'));
   const content = path.join(root, 'content'); cpSync(path.resolve(import.meta.dirname, 'fixtures/content'), content, { recursive: true });
   writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>Login only</title>');
   const store = new WorkspaceStore(content, path.join(root, 'private'));
-  const server = createWorkbenchServer({ store, origin, authMode, publicationReview, passwordHash: authMode === 'password' ? await hash : undefined, assets: root });
+  const server = createWorkbenchServer({ store, origin, authMode, publicationReview, access, passwordHash: authMode === 'password' ? await hash : undefined, assets: root });
   await new Promise<void>(resolve => server.listen(0, bind, resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); });
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No port');
@@ -32,7 +34,7 @@ async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://
         resolve(new Response(Buffer.concat(chunks), { status: response.statusCode, headers: result })); });
     }); req.on('error', reject); req.end(payload);
   });
-  const login = async () => { const response = authMode === 'ssh' ? await request('/api/session') : await request('/api/login', { password }); assert.equal(response.status, 200);
+  const login = async (headers: Record<string, string> = {}) => { const response = authMode !== 'password' ? await request('/api/session', undefined, headers) : await request('/api/login', { password }); assert.equal(response.status, 200);
     cookie = response.headers.get('set-cookie')!.split(';')[0]!; csrf = (await response.json()).csrf; return response; };
   return { request, login, store };
 }
@@ -154,6 +156,37 @@ test('SSH mode rejects connections arriving on another local address even with a
   const f = await fixture(t, 'http://127.0.0.1:4325', 'ssh', '127.0.0.2');
   assert.equal((await f.request('/api/session')).status, 403);
   assert.equal((await f.request('/')).status, 403);
+});
+test('Access mode needs an HTTPS origin and a verifier', () => {
+  assert.equal(authModeConfig('access', originConfig('https://editor.example')), 'access');
+  assert.throws(() => authModeConfig('access', originConfig('http://127.0.0.1:4325')), /HTTPS/);
+  assert.throws(() => createWorkbenchServer({ store: {} as WorkspaceStore, origin: 'https://editor.example', authMode: 'access', assets: '/tmp' }), /ACCESS/);
+});
+test('Access mode checks the assertion on every request and keeps sessions, CSRF and origin checks', async t => {
+  const a = accessFixture(); const verifier = new AccessVerifier(accessConfigForTests, a.fetchKeys);
+  const f = await fixture(t, 'https://editor.example', 'access', '127.0.0.1', undefined, verifier);
+  const asserted = { 'Cf-Access-Jwt-Assertion': a.token() };
+  for (const route of ['/', '/app.js', '/api/session', '/api/workspace']) assert.equal((await f.request(route)).status, 403, route);
+  for (const token of [a.token({ email: 'someone@example.test' }), a.token({ aud: ['b'.repeat(64)] }), 'forged']) {
+    assert.equal((await f.request('/api/session', undefined, { 'Cf-Access-Jwt-Assertion': token })).status, 403);
+  }
+  assert.equal((await f.request('/', undefined, asserted)).status, 200);
+  assert.equal((await f.request('/api/login', { password }, asserted)).status, 404);
+  for (const headers of [{ Origin: 'https://evil.example' }, { 'Sec-Fetch-Site': 'cross-site' }, { Host: 'evil.example' }] as Record<string, string>[]) {
+    assert.equal((await f.request('/api/session', undefined, { ...asserted, ...headers })).status, 403);
+  }
+  const response = await f.login(asserted);
+  assert.match(response.headers.get('set-cookie')!, /HttpOnly; SameSite=Strict;.*Secure/);
+  assert.equal((await (await f.request('/api/session', undefined, asserted)).json()).authMode, 'access');
+  assert.equal((await f.request('/api/workspace')).status, 403, 'a session cookie alone is not enough');
+  const before = await (await f.request('/api/workspace', undefined, asserted)).json();
+  const command = { type: 'addDirectory', id: 'access-mode-test', parentId: 'root', kind: 'topic', label: 'Access test' };
+  assert.equal((await f.request('/api/command', { revision: before.revision, command }, { ...asserted, 'X-CSRF-Token': '' })).status, 403);
+  assert.equal((await f.request('/api/command', { revision: before.revision, command }, { ...asserted, Origin: 'https://evil.example' })).status, 403);
+  assert.equal(f.store.get().revision, before.revision);
+  assert.equal((await f.request('/api/command', { revision: before.revision, command }, asserted)).status, 200);
+  assert.equal((await f.request('/api/logout', {}, asserted)).status, 200);
+  assert.equal((await f.request('/api/workspace', undefined, asserted)).status, 401);
 });
 test('automatic sessions retain expiry, revocation and a bounded session count', () => {
   let now = 0; const sessions = new Sessions(() => now);
