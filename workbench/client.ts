@@ -8,7 +8,7 @@ import type { PublicationProgress } from './publication-state';
 import type { PublicationReviewSummary } from './publication-review';
 import { uniqueId, matchesArticle, previewSize, articleListSummary, panelScrollOffset, localDate } from './ui-helpers';
 
-interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[] } }
+interface Article { id: string; path: string; body: string; data: { id: string; title: string; description: string; pubDate: string; draft: boolean; topics: string[]; lang?: 'zh-CN' | 'en' } }
 interface State { revision: string; sourceChanged: boolean; workspace: Workspace; articles: Article[] }
 type View = 'articles' | 'directory' | 'preview' | 'publication';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -107,7 +107,7 @@ function updateArticleList() {
     const li = document.createElement('li'); const button = document.createElement('button');
     button.type = 'button'; button.dataset.articleId = a.id; button.setAttribute('aria-current', String(a.id === selectedArticle && !creating));
     const title = document.createElement('span'); title.className = 'article-name'; title.textContent = a.data.title;
-    const meta = document.createElement('span'); meta.className = 'article-meta'; meta.textContent = `${a.data.draft ? '草稿' : '定稿'} · ${a.data.pubDate.slice(0, 10)}`;
+    const meta = document.createElement('span'); meta.className = 'article-meta'; meta.textContent = `${a.data.draft ? '草稿' : '定稿'} · ${a.data.pubDate.slice(0, 10)}${a.data.lang === 'en' ? ' · English' : ''}`;
     button.append(title, meta); button.addEventListener('click', () => { if (!discard()) return; clearDirty(); showArticle(a.id); toggleLibrary(false); });
     li.append(button); return li;
   }));
@@ -139,6 +139,7 @@ function showArticle(id?: string, fresh = false) {
   autoArticleId = data.id; autoArticlePath = field('article-form', 'path').value;
   field('article-form', 'pubDate').value = data.pubDate.slice(0, 10);
   field('article-form', 'draft').checked = data.draft;
+  field('article-form', 'lang').value = data.lang ?? 'zh-CN';
   field('article-form', 'topics').value = data.topics.join(', ');
   field('article-form', 'body').value = a?.body ?? '';
   $('topic-options').replaceChildren(...flat().filter(e => ['topic', 'index'].includes(e.node.type)).map(e => {
@@ -425,7 +426,7 @@ field('article-form', 'title').addEventListener('input', () => {
 });
 field('article-form', 'id').addEventListener('input', () => { if (creating && field('article-form', 'path').value === autoArticlePath) { autoArticlePath = 'articles/' + field('article-form', 'id').value + '.md'; field('article-form', 'path').value = autoArticlePath; } });
 form('article-form').addEventListener('submit', event => { event.preventDefault(); const value = (name: string) => field('article-form', name).value;
-  const command: Command = { type: 'saveArticle', create: creating, path: value('path'), body: value('body'), data: { id: value('id'), title: value('title'), description: value('description'), pubDate: value('pubDate'), draft: field('article-form', 'draft').checked, topics: value('topics').split(',').map(s => s.trim()).filter(Boolean) } };
+  const command: Command = { type: 'saveArticle', create: creating, path: value('path'), body: value('body'), data: { id: value('id'), title: value('title'), description: value('description'), pubDate: value('pubDate'), draft: field('article-form', 'draft').checked, topics: value('topics').split(',').map(s => s.trim()).filter(Boolean), lang: value('lang') === 'en' ? 'en' : 'zh-CN' } };
   void action(() => save(command));
 });
 $('write-body').addEventListener('click', () => bodyMode(false));

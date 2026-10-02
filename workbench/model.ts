@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import matter from 'gray-matter';
 import { articleSchema, contentId, compilePublicTopology, parseTopologySource, publicDirectoryDocument, type TopologySource } from '../src/lib/topology-content';
+import { DEFAULT_LANG } from '../src/lib/i18n';
 import type { TopologyNode } from '@xan9x/topology/schema';
 
 export class WorkbenchError extends Error {
@@ -73,7 +74,10 @@ export function applyCommand(current: Workspace, input: unknown): Workspace {
       const index = articles.findIndex(a => a.id === command.data.id);
       if (command.create ? index !== -1 : index === -1) throw new WorkbenchError('文章已存在或已被删除，请重新加载。', 409);
       const metadata = index < 0 ? {} : articles[index]!.metadata;
-      const raw = matter.stringify(command.body, { ...metadata, ...command.data }, { language: 'yaml' });
+      const fields: Record<string, unknown> = { ...metadata, ...command.data };
+      // The default language stays implicit: files gain no field, and switching back removes an old one.
+      if ((command.data.lang ?? DEFAULT_LANG) === DEFAULT_LANG) delete fields.lang;
+      const raw = matter.stringify(command.body, fields, { language: 'yaml' });
       const file = { path: command.path, raw };
       if (index < 0) workspace.articles.push(file); else workspace.articles[index] = file;
       break;

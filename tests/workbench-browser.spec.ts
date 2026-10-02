@@ -559,3 +559,27 @@ test('deployment query separates live production from older evidence without tri
   await expect(page.locator('#publish-status')).not.toContainText('已上线');
   expect(queries).toBe(3);expect(writes).toBe(0);
 });
+
+test('article language is chosen in settings, round-trips through save and reload, and shows in the list', async ({ page }) => {
+  await login(page);
+  await view(page, 'articles');
+  const language = page.locator('#article-form').getByLabel('文章语言');
+  const open = async (id: string) => {
+    await page.locator(`#articles [data-article-id="${id}"]`).click();
+    if (await page.locator('#article-settings').getAttribute('open') === null) await settings(page);
+  };
+  await open('hello');
+  await expect(language).toHaveValue('en');
+  await expect(page.locator('#articles [data-article-id="hello"] .article-meta')).toContainText('English');
+  await open('publishing-pipeline');
+  await expect(language).toHaveValue('zh-CN');
+  await language.selectOption('en');
+  await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
+  await expect(page.locator('#articles [data-article-id="publishing-pipeline"] .article-meta')).toContainText('English');
+  await page.reload(); await expect(page.getByRole('heading', { name: '内容工作区' })).toBeVisible();
+  await view(page, 'articles'); await open('publishing-pipeline');
+  await expect(language).toHaveValue('en');
+  await language.selectOption('zh-CN');
+  await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
+  await expect(page.locator('#articles [data-article-id="publishing-pipeline"] .article-meta')).not.toContainText('English');
+});

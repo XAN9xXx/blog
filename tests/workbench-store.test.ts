@@ -122,3 +122,18 @@ test('repeated Markdown saves preserve leading whitespace without accumulating b
     }
   }
 });
+test('article language: English is written out, the default stays implicit and switching back removes it', t => {
+  const f = setup(t); let w = f.store.get().workspace;
+  const file = () => w.articles.find(a => a.path.endsWith('publishing-pipeline.md'))!;
+  const article = parseArticle(file());
+  const save = (lang: string) => applyCommand(w, { type: 'saveArticle', create: false, path: file().path, data: { ...article.data, lang } as never, body: article.body });
+  assert.equal(article.data.lang, undefined);
+  w = save('zh-CN');
+  assert.doesNotMatch(file().raw, /^lang:/m, 'saving the default adds no field');
+  w = save('en');
+  assert.match(file().raw, /^lang: en$/m);
+  assert.equal(parseArticle(file()).data.lang, 'en');
+  w = save('zh-CN');
+  assert.doesNotMatch(file().raw, /^lang:/m, 'switching back removes the old value');
+  assert.throws(() => save('fr'));
+});
