@@ -462,8 +462,14 @@ main {
   gap: 10px;
   margin-bottom: 12px;
 }
-.body-toolbar > span {
+.body-toolbar > span,
+.body-tools > span {
   font-size: 12px;
+}
+.body-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .segmented {
   display: flex;
@@ -524,6 +530,10 @@ main {
 #rendered-body table {
   display: block;
   overflow: auto;
+}
+#rendered-body img {
+  max-width: 100%;
+  height: auto;
 }
 #rendered-body blockquote {
   border-left: 2px solid var(--line);

@@ -23,7 +23,10 @@ if (process.env.WORKBENCH_TEST_REVIEW === '1' || process.env.WORKBENCH_TEST_PUBL
   if (process.env.WORKBENCH_TEST_PUBLISH === '1') {
     // Test-only local bare remote inside this freshly-created temporary root; no real SSH credentials.
     const remote = path.join(root, 'remote.git'); git('clone', '--bare', content, remote);
-    const executor = new PublicationExecutor({ directory: path.join(root, 'publisher'), remote, publishEnabled: true });
+    // In-memory stand-in for the R2 image bucket: nothing leaves this process.
+    const bucket = new Map<string, Buffer>();
+    const images = { async head(key: string) { return bucket.has(key); }, async put(key: string, bytes: Buffer) { bucket.set(key, bytes); } };
+    const executor = new PublicationExecutor({ directory: path.join(root, 'publisher'), remote, publishEnabled: true, images });
     publisherServer = createPublisherServer(executor, { allowConfirmation: true });
     const socket = path.join(root, 'publisher.sock'); publisherServer.listen(socket); await once(publisherServer, 'listening');
     publicationReview = new PublisherReview(socket, { allowConfirmation: true });

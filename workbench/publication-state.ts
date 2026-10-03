@@ -9,7 +9,7 @@ const commit = z.string().regex(/^[a-f0-9]{40}$/);
 export const jobId = z.string().regex(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
 export const jobSummarySchema = z.strictObject({
   id: jobId, planId: digest, expiresAt: z.iso.datetime(),
-  phase: z.enum(['prepared', 'committing', 'committed', 'pushing', 'pushed', 'no-changes', 'conflict', 'unknown', 'expired']),
+  phase: z.enum(['prepared', 'committing', 'committed', 'pushing', 'pushed', 'no-changes', 'conflict', 'unknown', 'expired', 'failed']),
   commit: commit.nullable(), revision: digest, baseRevision: digest, candidateDigest: digest, baseCommit: commit,
   publishEnabled: z.boolean(), deployed: z.literal(false),
 }).refine(job => !['pushed', 'no-changes'].includes(job.phase) || job.commit !== null, 'Successful jobs require a commit');
@@ -22,7 +22,7 @@ export function sameJob(left: PublicationJob, right: PublicationJob) {
   return (['id', 'planId', 'revision', 'baseRevision', 'candidateDigest', 'baseCommit', 'expiresAt'] as const).every(key => left[key] === right[key]);
 }
 export function publicationSettled(progress: PublicationProgress) {
-  return progress.baseline === 'advanced' || ['conflict', 'expired'].includes(progress.job.phase);
+  return progress.baseline === 'advanced' || ['conflict', 'expired', 'failed'].includes(progress.job.phase);
 }
 /** Private acceptance receipt, written BEFORE IPC confirmation. Never stores Markdown or credentials. */
 export class PublicationJournal {

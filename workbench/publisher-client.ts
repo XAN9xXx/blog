@@ -3,7 +3,9 @@ import path from 'node:path';
 import { deploymentReportSchema } from './deployment-state';
 import type { WorkspaceStore } from './store';
 import { WorkbenchError } from './model';
-import { MAX_PLAN_BYTES } from './publication-plan';
+import { MAX_PLAN_BYTES, publicImages } from './publication-plan';
+import { ImageStore } from './image-store';
+import { z } from 'zod';
 import { confirmationSchema, jobSummarySchema, PublicationJournal, publicationSettled, sameJob, type PublicationConfirmation, type PublicationProgress } from './publication-state';
 import type { PublicationReviewSummary, PublicationReviewProvider } from './publication-review';
 export class PublisherReview implements PublicationReviewProvider {
@@ -26,7 +28,7 @@ export class PublisherReview implements PublicationReviewProvider {
           } catch (error) { reject(error); }
         });
       });
-      const timer = setTimeout(() => req.destroy(new Error('publisher timeout')), 180_000);
+      const timer = setTimeout(() => req.destroy(new Error('publisher timeout')), 600_000);
       req.on('close', () => clearTimeout(timer)); req.on('error', reject); req.end(payload);
     }).catch(error => { if (error instanceof WorkbenchError) throw error; throw new WorkbenchError('独立执行器暂不可用；若已确认发布，结果待查询，切勿重新推送。', 503); });
   }
@@ -46,6 +48,16 @@ export class PublisherReview implements PublicationReviewProvider {
       if (previous && !publicationSettled(previous)) throw new WorkbenchError('已有发布结果待核对，请先查询该作业，不能创建新发布。', 409);
       const snapshot = store.get();
       if (snapshot.revision !== revision) throw new WorkbenchError('已保存内容发生变化，请重新读取后再核对。', 409);
+      // Hand the executor the private copies of public images it does not have yet; it verifies each one.
+      const { referenced } = publicImages(snapshot.workspace);
+      if (referenced.length) {
+        const missing = z.array(z.string()).parse((await this.call('/images/missing', { keys: referenced })).missing);
+        const local = new ImageStore(path.join(store.directory, 'images'));
+        for (const key of missing) {
+          const bytes = local.read(key);
+          if (bytes) await this.call('/images/stage', { key, data: bytes.toString('base64') });
+        }
+      }
       const plan = await this.call('/prepare', { version: snapshot.version, baseRevision: snapshot.baseRevision, workspace: snapshot.workspace, revision });
       if (plan.canPublish !== false || plan.mode !== 'offline-review' || 'snapshot' in plan) throw new WorkbenchError('无效的执行器核对结果。', 503);
       const execution = jobSummarySchema.parse(plan.execution);

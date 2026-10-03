@@ -583,3 +583,43 @@ test('article language is chosen in settings, round-trips through save and reloa
   await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
   await expect(page.locator('#articles [data-article-id="publishing-pipeline"] .article-meta')).not.toContainText('English');
 });
+
+test('images from the picker and the clipboard are uploaded, previewed and published with their article', async ({ page }) => {
+  test.skip(!publishFixture, 'Requires disposable publisher with an in-memory image bucket.');
+  await login(page); await createDraft(page, '带图片的文章');
+  const body = page.locator('#article-form').getByLabel('Markdown 正文'); await body.fill('## 截图\n');
+  // Real encoder output from the browser itself, so the processed copies must still decode.
+  const [jpeg, png] = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 40; canvas.height = 30;
+    const context = canvas.getContext('2d')!; context.fillStyle = '#4659c9'; context.fillRect(0, 0, 40, 30);
+    const encode = (type: string) => new Promise<string>(resolve => canvas.toBlob(async blob => resolve(btoa(String.fromCharCode(...new Uint8Array(await blob!.arrayBuffer())))), type));
+    return [await encode('image/jpeg'), await encode('image/png')];
+  });
+  await body.evaluate((textarea: HTMLTextAreaElement) => textarea.setSelectionRange(textarea.value.length, textarea.value.length));
+  await page.locator('#image-file').setInputFiles({ name: 'diagram.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg!, 'base64') });
+  await expect(body).toHaveValue(/^## 截图\n\n!\[diagram\]\(https:\/\/img\.xan9x\.com\/[a-f0-9]{32}-40x30\.jpg\)\n$/);
+  await body.evaluate((textarea: HTMLTextAreaElement, data: string) => {
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    const transfer = new DataTransfer(); transfer.items.add(new File([Uint8Array.from(atob(data), c => c.charCodeAt(0))], 'image.png', { type: 'image/png' }));
+    textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+  }, png!);
+  await expect(body).toHaveValue(/\.jpg\)\n\n!\[图片\]\(https:\/\/img\.xan9x\.com\/[a-f0-9]{32}-40x30\.png\)\n$/);
+  await expect(page.locator('#save-status')).toContainText('未保存');
+  await page.locator('#preview-body').click();
+  const images = page.locator('#rendered-body img'); await expect(images).toHaveCount(2);
+  await expect.poll(() => images.evaluateAll(list => list.map(image => (image as HTMLImageElement).naturalWidth))).toEqual([40, 40]);
+  await page.locator('#write-body').click();
+  await settings(page); await page.locator('#article-form').getByLabel('保留为草稿').uncheck();
+  await page.getByRole('button', { name: '保存文章', exact: true }).click(); await saved(page);
+  await reviewForConfirmation(page);
+  await expect(page.locator('#publication-disclosure')).toContainText('公开文章引用 2 张图片，确认后先上传 2 张到图床，再推送 Git。');
+  await page.locator('#publication-acknowledge').check(); await page.locator('#confirm-publication').click();
+  await expect(page.locator('#publication-job-status')).toContainText('已推送 Git，网站部署尚未核验');
+});
+test('a non-image file is refused before upload and leaves the body untouched', async ({ page }) => {
+  await login(page);
+  const body = page.locator('#article-form').getByLabel('Markdown 正文'); const before = await body.inputValue();
+  await page.locator('#image-file').setInputFiles({ name: 'note.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg/>') });
+  await expect(page.locator('#message')).toContainText('不是 8 MiB 以内的 PNG、JPEG、WebP 或 GIF 图片');
+  await expect(body).toHaveValue(before);
+});

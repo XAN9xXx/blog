@@ -25,7 +25,7 @@ async function fixture(t: { after(fn: () => unknown): void }, origin = 'https://
   const base = `http://${bind}:${address.port}`;
   let cookie = ''; let csrf = '';
   const request = (route: string, value?: unknown, headers: Record<string, string> = {}) => new Promise<Response>((resolve, reject) => {
-    const payload = value === undefined ? undefined : JSON.stringify(value);
+    const payload = value === undefined ? undefined : Buffer.isBuffer(value) ? value : JSON.stringify(value);
     const req = httpRequest(base + route, { method: payload === undefined ? 'GET' : 'POST', headers: {
       Host: new URL(origin).host, Cookie: cookie, ...(payload === undefined ? {} : { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(payload)), 'X-CSRF-Token': csrf }), ...headers,
     } }, response => {
@@ -248,4 +248,31 @@ test('deployment query requires CSRF and rejects client-supplied commit or repos
   assert.equal((await f.request('/api/publication/deployment', {}, { 'X-CSRF-Token': '' })).status,403);
   assert.equal((await f.request('/api/publication/deployment', { commit: 'a'.repeat(40) })).status,400);
   assert.deepEqual(await (await f.request('/api/publication/deployment', {})).json(),{report:null});
+});
+
+test('image upload is authenticated and CSRF-checked, strips metadata, serves privately and previews only uploads', async t => {
+  const f = await fixture(t);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  const text = Buffer.from([0, 0, 0, 6, ...Buffer.from('tEXtsecret'), 0, 0, 0, 0]);
+  const upload = Buffer.concat([png.subarray(0, png.length - 12), text, png.subarray(png.length - 12)]);
+  const asPng = { 'Content-Type': 'image/png' };
+  assert.equal((await f.request('/api/images', upload, asPng)).status, 401);
+  await f.login();
+  assert.equal((await f.request('/api/images', upload, { ...asPng, 'X-CSRF-Token': 'wrong' })).status, 403);
+  assert.equal((await f.request('/api/images', upload, { ...asPng, Origin: 'https://evil.example' })).status, 403);
+  assert.equal((await f.request('/api/images', Buffer.from('<svg/>'), { 'Content-Type': 'image/svg+xml' })).status, 415);
+  assert.equal((await f.request('/api/images', Buffer.from('not an image'), asPng)).status, 415);
+  const response = await f.request('/api/images', upload, asPng); assert.equal(response.status, 200);
+  const image = await response.json();
+  assert.match(image.key, /^[a-f0-9]{32}-1x1\.png$/); assert.equal(image.url, 'https://img.xan9x.com/' + image.key);
+  const served = await f.request('/api/images/' + image.key);
+  assert.equal(served.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), png, 'the stored copy has no text chunk');
+  assert.match(served.headers.get('content-security-policy')!, /img-src 'self' https:\/\/img\.xan9x\.com;/);
+  const remote = await f.request('/api/images/' + 'b'.repeat(32) + '-10x10.webp');
+  assert.equal(remote.status, 302); assert.equal(remote.headers.get('location'), 'https://img.xan9x.com/' + 'b'.repeat(32) + '-10x10.webp');
+  for (const key of ['../workspace.json', 'b'.repeat(32) + '-10x10.svg', '%2e%2e%2fworkspace.json']) assert.equal((await f.request('/api/images/' + key)).status, 404, key);
+  const { html } = await (await f.request('/api/markdown', { body: `![A <b>](${image.url})\n\n![x](https://evil.example/t.png)` })).json();
+  assert.match(html, new RegExp(`<img src="/api/images/${image.key}" alt="A &lt;b&gt;" width="1" height="1" loading="lazy">`));
+  assert.ok(!html.includes('evil.example'));
 });

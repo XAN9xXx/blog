@@ -1,4 +1,5 @@
 import type { DeploymentReport } from './deployment-state';
+import type { ImageStatus } from './publication-executor';
 import type { PublicationConfirmation, PublicationJob, PublicationProgress } from './publication-state';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -7,7 +8,7 @@ import { WorkbenchError } from './model';
 import type { WorkspaceStore } from './store';
 import { MAX_PLAN_BYTES, type RepositoryVisibility, type publicationPlanSummary } from './publication-plan';
 
-export type PublicationReviewSummary = ReturnType<typeof publicationPlanSummary> & { execution?: PublicationJob };
+export type PublicationReviewSummary = ReturnType<typeof publicationPlanSummary> & { execution?: PublicationJob; imageStatus?: ImageStatus };
 export interface PublicationReviewProvider {
   status: { configured: boolean; canPublish: boolean; baseCommit?: string; visibilityDeclaration?: string; remoteChecked: boolean; transport?: string };
   create(store: WorkspaceStore, revision: string): Promise<PublicationReviewSummary>;

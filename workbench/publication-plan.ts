@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { flatten, parseArticle, preview, validateWorkspace, WorkbenchError, type Workspace } from './model';
+import { imageSources } from './markdown';
+import { parseImageUrl } from '../src/lib/images';
 
 export const PLAN_TTL_MS = 15 * 60_000;
 export const MAX_PLAN_BYTES = 16 * 1024 * 1024;
@@ -65,6 +67,22 @@ function directoryChanges(before: Workspace, after: Workspace) {
   const oldRelations = relations(before); const newRelations = relations(after);
   return { added, removed, modified, relationsAdded: [...newRelations].filter(([key]) => !oldRelations.has(key)).map(([, edge]) => edge), relationsRemoved: [...oldRelations].filter(([key]) => !newRelations.has(key)).map(([, edge]) => edge) };
 }
+/**
+ * Images that public articles reference. Draft-only images stay private and are not listed. Any source that
+ * is not an uploaded key is reported, because the site build rejects it.
+ */
+export function publicImages(workspace: Workspace) {
+  const referenced = new Set<string>(); const invalid: { article: string; source: string }[] = [];
+  for (const file of workspace.articles) {
+    const article = parseArticle(file);
+    if (article.data.draft) continue;
+    for (const source of imageSources(article.body)) {
+      const image = parseImageUrl(source);
+      if (image) referenced.add(image.key); else invalid.push({ article: article.id, source: source.slice(0, 300) });
+    }
+  }
+  return { referenced: [...referenced].sort(), invalid };
+}
 function freeze<T>(value: T): T {
   if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
   return value;
@@ -101,11 +119,13 @@ export function createPublicationPlan(input: unknown, baseline: PublicationBasel
   const issues: { code: string; message: string }[] = [];
   if (visibility === 'unknown') issues.push({ code: 'visibility-unconfirmed', message: '尚未确认 content 仓库及所有镜像的可见性。' });
   if (drafts.length && visibility !== 'private') issues.push({ code: 'draft-privacy', message: '完整快照含草稿；禁止向公开或可见性未知的仓库上传此快照。' });
+  const images = publicImages(after);
+  if (images.invalid.length) issues.push({ code: 'image-source', message: '公开文章只能使用工作台上传的图片，以下来源会让站点构建失败：' + images.invalid.map(item => `${item.article}：${item.source}`).join('；') });
   const payload = { version: 1 as const, mode: 'offline-review' as const, canPublish: false as const,
     createdAt: new Date(now).toISOString(), expiresAt: new Date(now + PLAN_TTL_MS).toISOString(),
     baseCommit: baseline.commit, baseRevision: snapshot.baseRevision, revision: digest(snapshot), candidateDigest: digest({ ...after, articles: [...after.articles].sort((a, b) => compareArticlePaths(a.path, b.path)) }),
     checks: { localBaselineContentMatches: true as const, importCommitProvenanceVerified: false as const, remoteChecked: false as const, workingTreeUsed: false as const, visibilityDeclaration: visibility },
-    noChanges: files.length === 0, files, articles, directories: directoryChanges(before, after),
+    noChanges: files.length === 0, files, articles, directories: directoryChanges(before, after), images,
     disclosure: { drafts, publicArticles, publicMapEntries: flatten(preview(after, 'public').root).filter(({ node }) => node.type === 'article').length, preservedFileCount: baseline.preservedFileCount },
     issues, snapshot,
   };

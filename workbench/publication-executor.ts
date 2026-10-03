@@ -8,19 +8,28 @@ import { assertRealPath } from './store';
 import { WorkbenchError } from './model';
 import { assertPublicationPlanCurrent, createPublicationPlan, parsePublicationSnapshot, publicationPlanSummary, type PublicationPlan } from './publication-plan';
 import { readPublicationBaseline } from './publication-git';
+import { verifyImage } from './images';
+import type { ImageUploader } from './r2';
+import { parseImageKey } from '../src/lib/images';
 
-type Phase = 'prepared' | 'committing' | 'committed' | 'pushing' | 'pushed' | 'no-changes' | 'conflict' | 'unknown' | 'expired';
+type Phase = 'prepared' | 'committing' | 'committed' | 'pushing' | 'pushed' | 'no-changes' | 'conflict' | 'unknown' | 'expired' | 'failed';
 interface Job { version: 1; id: string; phase: Phase; plan: PublicationPlan; commit?: string }
-export interface ExecutorConfig { directory: string; remote: string; sshCommand?: string; publishEnabled: boolean }
+export interface ExecutorConfig { directory: string; remote: string; sshCommand?: string; publishEnabled: boolean; images?: ImageUploader }
+export interface ImageStatus { referenced: number; upload: string[]; missing: string[]; invalid: number; uploaderConfigured: boolean }
 /** Dedicated worker only. Fixed administrator config, private objects/indexes, no working-tree checkout or hooks. */
 export class PublicationExecutor {
   private readonly repository: string;
   private readonly jobs: string;
+  private readonly published: string;
+  private readonly staged: string;
   private readonly env: NodeJS.ProcessEnv;
   constructor(private readonly config: ExecutorConfig) {
     assertRealPath(config.directory); mkdirSync(config.directory, { recursive: true, mode: 0o700 });
     this.repository = path.join(config.directory, 'repository'); this.jobs = path.join(config.directory, 'jobs');
     assertRealPath(this.repository); assertRealPath(this.jobs); mkdirSync(this.jobs, { mode: 0o700, recursive: true });
+    // Images: empty markers for keys known to be in the bucket, and verified uploads waiting for a confirmation.
+    this.published = path.join(config.directory, 'images', 'published'); this.staged = path.join(config.directory, 'images', 'staged');
+    for (const directory of [this.published, this.staged]) { assertRealPath(directory); mkdirSync(directory, { mode: 0o700, recursive: true }); }
     this.env = { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull, GIT_TERMINAL_PROMPT: '0',
       GIT_SSH_COMMAND: config.sshCommand, GIT_SSH_VARIANT: 'ssh' };
     if (!existsSync(this.repository)) {
@@ -58,7 +67,7 @@ export class PublicationExecutor {
   }
   private load(id: string): Job {
     const job = JSON.parse(readFileSync(this.file(id), 'utf8')) as Job;
-    if (job.version !== 1 || job.id !== id || !['prepared','committing','committed','pushing','pushed','no-changes','conflict','unknown','expired'].includes(job.phase)) throw new WorkbenchError('发布作业损坏，拒绝继续。', 409);
+    if (job.version !== 1 || job.id !== id || !['prepared','committing','committed','pushing','pushed','no-changes','conflict','unknown','expired','failed'].includes(job.phase)) throw new WorkbenchError('发布作业损坏，拒绝继续。', 409);
     return job;
   }
   get publishEnabled() { return this.config.publishEnabled; }
@@ -72,13 +81,66 @@ export class PublicationExecutor {
     try { fd = openSync(file, 'wx', 0o600); } catch { throw new WorkbenchError('执行器忙碌或保留了中断锁；不会自动重试推送。', 409); }
     try { return run(); } finally { closeSync(fd); unlinkSync(file); }
   }
+  private async lockedAsync<T>(run: () => Promise<T>): Promise<T> {
+    const file = path.join(this.config.directory, 'execution.lock'); let fd: number;
+    try { fd = openSync(file, 'wx', 0o600); } catch { throw new WorkbenchError('执行器忙碌或保留了中断锁；不会自动重试推送。', 409); }
+    try { return await run(); } finally { closeSync(fd); unlinkSync(file); }
+  }
+  private imageFile(directory: string, key: string) {
+    if (!parseImageKey(key)) throw new WorkbenchError('无效的图片名称。');
+    const file = path.join(directory, key); assertRealPath(file); return file;
+  }
+  private isPublished(key: string) { return existsSync(this.imageFile(this.published, key)); }
+  private markPublished(key: string) { closeSync(openSync(this.imageFile(this.published, key), 'a', 0o600)); }
+  /** Keys not yet in the bucket. Unknown keys are checked once with HEAD, then remembered. */
+  async missingImages(keys: string[]) {
+    if (keys.length > 1000) throw new WorkbenchError('单次发布最多引用 1000 张图片。');
+    const missing: string[] = [];
+    for (const key of [...new Set(keys)].sort()) {
+      if (this.isPublished(key)) continue;
+      if (this.config.images && await this.config.images.head(key)) { this.markPublished(key); continue; }
+      missing.push(key);
+    }
+    return missing;
+  }
+  /** Hold a verified, metadata-free image privately until a confirmation uploads it. */
+  stageImage(key: string, bytes: Buffer) {
+    verifyImage(key, bytes);
+    const file = this.imageFile(this.staged, key);
+    if (existsSync(file)) return;
+    if (readdirSync(this.staged).length >= 200) throw new WorkbenchError('待上传图片过多，请先完成或清理之前的发布。', 409);
+    const temporary = path.join(this.staged, '.' + randomUUID() + '.tmp'); const fd = openSync(temporary, 'wx', 0o600);
+    try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+    try { renameSync(temporary, file); } finally { if (existsSync(temporary)) unlinkSync(temporary); }
+  }
+  imageStatus(plan: PublicationPlan): ImageStatus {
+    const pending = plan.images.referenced.filter(key => !this.isPublished(key));
+    const staged = (key: string) => existsSync(this.imageFile(this.staged, key));
+    return { referenced: plan.images.referenced.length, upload: pending.filter(staged), missing: pending.filter(key => !staged(key)),
+      invalid: plan.images.invalid.length, uploaderConfigured: Boolean(this.config.images) };
+  }
+  /** True when a confirmation could publish every referenced image. */
+  imagesReady(status: ImageStatus) { return !status.missing.length && !status.invalid && (!status.upload.length || status.uploaderConfigured); }
+  /** Upload before any Git write: a failure leaves the content repository untouched. */
+  private async uploadImages(plan: PublicationPlan) {
+    const status = this.imageStatus(plan);
+    if (!this.imagesReady(status)) return false;
+    for (const key of status.upload) {
+      const file = this.imageFile(this.staged, key); const bytes = readFileSync(file);
+      const image = verifyImage(key, bytes);
+      await this.config.images!.put(key, bytes, image.type);
+      if (!await this.config.images!.head(key)) return false;
+      this.markPublished(key); unlinkSync(file);
+    }
+    return true;
+  }
   prepare(snapshot: unknown) {
     const parsed = parsePublicationSnapshot(snapshot);
     return this.locked(() => {
       if (readdirSync(this.jobs).filter(name => name.endsWith('.json')).length >= 100) throw new WorkbenchError('发布作业数量达到上限，请先人工清理已审阅的历史。', 409);
       const plan = createPublicationPlan(parsed, this.baseline(), { visibility: 'private' });
       const job: Job = { version: 1, id: randomUUID(), phase: 'prepared', plan }; this.save(job);
-      return { ...publicationPlanSummary(plan), execution: this.summary(job) };
+      return { ...publicationPlanSummary(plan), imageStatus: this.imageStatus(plan), execution: this.summary(job) };
     });
   }
   get(id: string) { return this.summary(this.load(id)); }
@@ -95,7 +157,7 @@ export class PublicationExecutor {
     });
   }
   confirm(id: string, revision: string) {
-    return this.locked(() => {
+    return this.lockedAsync(async () => {
       const job = this.load(id);
       if (job.plan.revision !== revision) throw new WorkbenchError('确认版本与冻结作业不一致。', 409);
       if (['pushed','no-changes','conflict','unknown','expired'].includes(job.phase)) return this.summary(job);
@@ -110,6 +172,11 @@ export class PublicationExecutor {
       if (baseline.commit !== job.plan.baseCommit) { job.phase = 'conflict'; this.save(job); return this.summary(job); }
       if (Date.now() >= Date.parse(job.plan.expiresAt)) { job.phase = 'expired'; this.save(job); return this.summary(job); }
       assertPublicationPlanCurrent(job.plan, job.plan.snapshot, baseline, 'private');
+      let uploaded = false;
+      try { uploaded = await this.uploadImages(job.plan); } catch { uploaded = false; }
+      if (!uploaded) { job.phase = 'failed'; this.save(job); return this.summary(job); }
+      // Uploading takes time; the remote must still be the reviewed baseline before writing anything.
+      if (this.remoteHead() !== baseline.commit) { job.phase = 'conflict'; this.save(job); return this.summary(job); }
       if (job.plan.noChanges) { job.phase = 'no-changes'; job.commit = baseline.commit; this.save(job); return this.summary(job); }
       job.phase = 'committing'; this.save(job);
       const index = path.join(this.jobs, job.id + '.index'); assertRealPath(index);

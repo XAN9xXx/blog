@@ -123,9 +123,13 @@
                     <button id="write-body" type="button" aria-pressed="true">编辑正文</button
                     ><button id="preview-body" type="button" aria-pressed="false">预览当前正文</button>
                   </div>
-                  <span class="muted">Markdown</span>
+                  <div class="body-tools">
+                    <button id="insert-image" type="button">插入图片</button
+                    ><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
+                    /><span class="muted">Markdown</span>
+                  </div>
                 </div>
-                <p id="body-heading-help" class="field-help">正文建议从 ## 二级标题开始，文章标题会单独显示为一级标题。</p>
+                <p id="body-heading-help" class="field-help">正文建议从 ## 二级标题开始，文章标题会单独显示为一级标题。也可以把图片直接粘贴或拖进正文；图片只存在工作台，确认发布时才会上传到公开图床。</p>
                 <label id="body-editor"
                   >Markdown 正文<textarea
                     name="body"

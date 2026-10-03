@@ -2,6 +2,7 @@ import { chmodSync, existsSync, lstatSync, readFileSync } from 'node:fs';
 import { PublicationExecutor } from './publication-executor';
 import { createPublisherServer } from './publisher-http';
 import { cloudflareCredentialSchema, cloudflareLookup, DeploymentReader, githubLookup } from './deployment-reader';
+import { r2CredentialSchema, r2Uploader } from './r2';
 // Administrator-owned constants: no URL, shell command or key path can come from the browser.
 // Real pushes are enabled only by these constants, never by an environment switch; each one
 // still needs an explicit browser confirmation of a frozen review.
@@ -11,7 +12,18 @@ const socket = '/run/xan9x-publisher/review.sock';
 const sshConfig = '/etc/xan9x-publisher/ssh_config';
 if (!existsSync(sshConfig)) throw new Error(`Missing ${sshConfig}; define Host content-origin before starting.`);
 if (existsSync(socket)) throw new Error('Publisher socket already exists; inspect the previous service before recovery.');
+// Optional bucket-scoped R2 credential (Object Read & Write on the image bucket only). Without it, articles
+// whose images are not yet published cannot be confirmed; nothing else changes.
+let images;
+const r2File = readCredential('/etc/xan9x-publisher/r2-images');
+if (r2File !== undefined) {
+  let value: unknown; try { value = JSON.parse(r2File); } catch { value = undefined; } // JSON errors would echo the file.
+  const credential = r2CredentialSchema.safeParse(value);
+  if (!credential.success) throw new Error('Invalid R2 image credential file.');
+  images = r2Uploader(credential.data);
+}
 const executor = new PublicationExecutor({
+  images,
   directory: '/var/lib/xan9x-publisher/state',
   remote: 'ssh://git@content-origin/srv/git/xan9x-blog-content.git',
   sshCommand: `ssh -F ${sshConfig} -i /var/lib/xan9x-publisher/.ssh/content_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/xan9x-publisher/.ssh/known_hosts -o ConnectTimeout=10`,

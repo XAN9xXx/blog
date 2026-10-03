@@ -310,6 +310,16 @@ async function loadPublicationConfiguration() {
   $('refresh-publication').hidden = status.transport !== 'isolated-worker';
   if (status.transport === 'isolated-worker') displayPublicationProgress((await api<{ progress: PublicationProgress | null }>('/api/publication/job')).progress);
 }
+/** Draft-only images are never listed: they stay in the workbench until their article is published. */
+function imageSummary(plan: PublicationReviewSummary) {
+  const count = plan.images.referenced.length; const status = plan.imageStatus;
+  if (!count) return '公开文章没有引用图片。';
+  if (!status) return `公开文章引用 ${count} 张图片。`;
+  const notes = [`公开文章引用 ${count} 张图片，确认后先上传 ${status.upload.length} 张到图床，再推送 Git`];
+  if (status.missing.length) notes.push(`有 ${status.missing.length} 张在工作台里找不到原图，暂不能发布；请在文章中重新插入这些图片`);
+  if (status.upload.length && !status.uploaderConfigured) notes.push('执行器尚未配置图床凭据，暂不能发布');
+  return notes.join('；') + '。';
+}
 function reviewList(id: string, lines: string[], empty: string) {
   $(id).replaceChildren(...(lines.length ? lines : [empty]).map(text => { const item = document.createElement('li'); item.textContent = text; return item; }));
 }
@@ -329,6 +339,7 @@ $('review-publication').addEventListener('click', () => void action(async () => 
     ...plan.disclosure.publicArticles.map(article => `公开候选 · ${article.title}（${article.id}）`),
     ...plan.disclosure.drafts.map(article => `仅私有 Git · 草稿 ${article.title}（${article.id}）`),
     `公开地图文章入口 ${plan.disclosure.publicMapEntries} 个；保留 ${plan.disclosure.preservedFileCount} 个不由工作台管理的文件。`,
+    imageSummary(plan),
   ], '没有文章。');
   $('publication-directories').textContent = JSON.stringify(plan.directories, null, 2);
   reviewedPlan = plan;
@@ -353,7 +364,7 @@ function displayPublicationProgress(progress: PublicationProgress | null) {
   if (!progress) return;
   const labels: Record<PublicationProgress['job']['phase'], string> = {
     prepared: '确认已记录，执行结果待查询', committing: '正在生成提交', committed: '已生成候选提交，推送结果待核对', pushing: '推送结果待查询',
-    pushed: '已推送 Git，网站部署尚未核验', 'no-changes': '没有差异，未创建新提交', conflict: '远端已变化，本次未推送', unknown: '执行结果不确定，需要人工核对；不会自动重推', expired: '核对已过期，本次未推送',
+    pushed: '已推送 Git，网站部署尚未核验', 'no-changes': '没有差异，未创建新提交', conflict: '远端已变化，本次未推送', unknown: '执行结果不确定，需要人工核对；不会自动重推', expired: '核对已过期，本次未推送', failed: '图片上传未完成，本次未提交也未推送',
   };
   const baseline = progress.baseline === 'advanced' ? '工作区基线已更新，后续编辑已保留。' : progress.baseline === 'conflict' ? 'Git 结果已保留，但工作区基线未能更新，需要人工核对。' : '工作区基线尚未更新。';
   $('publication-job-status').textContent = `${labels[progress.job.phase]}。${baseline}`;
@@ -436,6 +447,49 @@ field('article-form', 'id').addEventListener('input', () => { if (creating && fi
 form('article-form').addEventListener('submit', event => { event.preventDefault(); const value = (name: string) => field('article-form', name).value;
   const command: Command = { type: 'saveArticle', create: creating, path: value('path'), body: value('body'), data: { id: value('id'), title: value('title'), description: value('description'), pubDate: value('pubDate'), draft: field('article-form', 'draft').checked, topics: value('topics').split(',').map(s => s.trim()).filter(Boolean), lang: value('lang') === 'en' ? 'en' : 'zh-CN' } };
   void action(() => save(command));
+});
+const imageTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+async function uploadImage(file: File, renewSession = true): Promise<{ url: string }> {
+  const response = await fetch('/api/images', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type, 'X-CSRF-Token': csrf }, body: file })
+    .catch(() => { throw new Error(unreachable[authMode]); });
+  if (response.status === 401 && authMode !== 'password' && renewSession) {
+    csrf = (await api<{ csrf: string }>('/api/session', undefined, false)).csrf; return uploadImage(file, false);
+  }
+  const result = await response.json();
+  if (!response.ok) throw new ApiError(result.error ?? '图片上传失败。', response.status); return result;
+}
+/** Each image becomes its own paragraph at the cursor; the form counts as edited, like typing. */
+async function insertImages(files: File[]) {
+  const textarea = form('article-form').elements.namedItem('body') as HTMLTextAreaElement;
+  const rejected = files.find(file => !imageTypes.includes(file.type) || file.size > 8 * 1024 * 1024);
+  if (rejected) throw new Error(`「${rejected.name}」不是 8 MiB 以内的 PNG、JPEG、WebP 或 GIF 图片，没有上传。`);
+  for (const file of files) {
+    const { url } = await uploadImage(file);
+    const name = file.name.replace(/\.[^.]*$/, '').replace(/[[\]\\]/g, '').trim();
+    const alt = !name || name === 'image' ? '图片' : name;
+    const { selectionStart: start, selectionEnd: end, value } = textarea;
+    const before = value.slice(0, start); const after = value.slice(end);
+    const prefix = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+    const suffix = after.startsWith('\n\n') ? '' : after.startsWith('\n') || !after ? '\n' : '\n\n';
+    textarea.setRangeText(`${prefix}![${alt}](${url})${suffix}`, start, end, 'end');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  message(`已插入 ${files.length} 张图片。保存文章后才会记入私有工作区；确认发布时才会上传到公开图床。`);
+}
+const imageFiles = (list?: FileList | null) => [...list ?? []].filter(file => file.type.startsWith('image/'));
+$('insert-image').addEventListener('click', () => $<HTMLInputElement>('image-file').click());
+$<HTMLInputElement>('image-file').addEventListener('change', event => {
+  const input = event.target as HTMLInputElement; const files = [...input.files ?? []]; input.value = '';
+  if (files.length) void action(() => insertImages(files));
+});
+field('article-form', 'body').addEventListener('paste', event => {
+  const files = imageFiles((event as ClipboardEvent).clipboardData?.files);
+  if (files.length) { event.preventDefault(); void action(() => insertImages(files)); }
+});
+field('article-form', 'body').addEventListener('dragover', event => { if ((event as DragEvent).dataTransfer?.types.includes('Files')) event.preventDefault(); });
+field('article-form', 'body').addEventListener('drop', event => {
+  const files = imageFiles((event as DragEvent).dataTransfer?.files);
+  if (files.length) { event.preventDefault(); void action(() => insertImages(files)); }
 });
 $('write-body').addEventListener('click', () => bodyMode(false));
 $('preview-body').addEventListener('click', () => { const body = field('article-form', 'body').value; void action(async () => { const result = await api<{ html: string }>('/api/markdown', { body }); $('rendered-body').innerHTML = result.html; bodyMode(true); }); });

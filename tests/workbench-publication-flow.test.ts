@@ -11,7 +11,11 @@ import { PublisherReview } from '../workbench/publisher-client';
 import { PublicationJournal, confirmationSchema } from '../workbench/publication-state';
 import { WorkspaceStore } from '../workbench/store';
 import type { PublicationReviewSummary } from '../workbench/publication-review';
-async function fixture(t: { after(fn: () => unknown): void }, enabled = true) {
+import type { ImageUploader } from '../workbench/r2';
+import { ImageStore } from '../workbench/image-store';
+import { parseArticle } from '../workbench/model';
+import { imageUrl } from '../src/lib/images';
+async function fixture(t: { after(fn: () => unknown): void }, enabled = true, images?: ImageUploader) {
   const root = mkdtempSync(path.join(tmpdir(), 'publication-flow-'));
   const source = path.resolve(import.meta.dirname, 'fixtures/content'); const content = path.join(root, 'content');
   cpSync(source, content, { recursive: true, filter: file => !path.relative(source, file).split(path.sep).some(part => part.startsWith('.')) });
@@ -19,10 +23,11 @@ async function fixture(t: { after(fn: () => unknown): void }, enabled = true) {
   git(content, 'init', '--initial-branch=main'); git(content, 'add', '.'); git(content, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'baseline');
   const remote = path.join(root, 'remote.git'); git(root, 'clone', '--bare', content, remote);
   const store = new WorkspaceStore(content, path.join(root, 'private')); const directory = path.join(root, 'worker');
-  const executor = new PublicationExecutor({ directory, remote, publishEnabled: enabled });
+  const executor = new PublicationExecutor({ directory, remote, publishEnabled: enabled, images });
   let confirmations = 0; let beforeConfirm = () => {}; let loseResponse = false;
   const service = { publishEnabled: executor.publishEnabled, prepare: executor.prepare.bind(executor), get: executor.get.bind(executor), reconcile: executor.reconcile.bind(executor),
-    confirm(id: string, revision: string) { confirmations++; beforeConfirm(); const result = executor.confirm(id, revision); if (loseResponse) throw new Error('Simulated lost response'); return result; } };
+    missingImages: executor.missingImages.bind(executor), stageImage: executor.stageImage.bind(executor), imagesReady: executor.imagesReady.bind(executor),
+    async confirm(id: string, revision: string) { confirmations++; beforeConfirm(); const result = await executor.confirm(id, revision); if (loseResponse) throw new Error('Simulated lost response'); return result; } };
   const socket = path.join(root, 'review.sock'); const server = createPublisherServer(service, { allowConfirmation: enabled });
   server.listen(socket); await once(server, 'listening');
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); });
@@ -135,7 +140,7 @@ test('executor expiration is terminal and does not push even after a confirmed a
   const now = Date.now;
   try {
     Date.now = () => Date.parse(plan.expiresAt) + 1;
-    const result = f.executor.confirm(plan.execution!.id, plan.revision); assert.equal(result.phase, 'expired');
+    const result = await f.executor.confirm(plan.execution!.id, plan.revision); assert.equal(result.phase, 'expired');
   } finally { Date.now = now; }
   assert.equal(f.head(), head);
 });
@@ -145,4 +150,27 @@ test('deployment status remains read-only and unconfigured after a successful is
   const before=f.store.get(),receipt=f.client.progress(f.store),head=f.head(),count=f.count();
   const report=await f.client.deployment(f.store);assert.equal(report?.contentCommit,head);assert.equal(report?.state,'unconfigured');assert.equal(report?.productionVerified,false);
   assert.deepEqual(f.store.get(),before);assert.deepEqual(f.client.progress(f.store),receipt);assert.equal(f.head(),head);assert.equal(f.count(),count);
+});
+
+test('review hands the executor only the public images it lacks, and confirmation publishes them', async t => {
+  const objects = new Map<string, Buffer>();
+  const f = await fixture(t, true, { async head(key) { return objects.has(key); }, async put(key, bytes) { objects.set(key, bytes); } });
+  const local = new ImageStore(path.join(f.store.directory, 'images'));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  const image = local.save(png); const draftOnly = local.save(Buffer.concat([Buffer.from('GIF89a', 'latin1'), Buffer.from([2, 0, 2, 0]), Buffer.alloc(8)]));
+  const article = parseArticle(f.store.get().workspace.articles[0]!);
+  f.store.save(f.store.get().revision, { type: 'saveArticle', create: true, path: 'articles/pictured.md', data: { ...article.data, id: 'pictured', title: 'Pictured', draft: false }, body: `![a](${imageUrl(image.key)})\n` });
+  f.store.save(f.store.get().revision, { type: 'saveArticle', create: true, path: 'articles/secret.md', data: { ...article.data, id: 'secret', title: 'Secret', draft: true }, body: `![b](${imageUrl(draftOnly.key)})\n` });
+  const plan = await f.client.create(f.store, f.store.get().revision);
+  assert.deepEqual(plan.imageStatus?.upload, [image.key]); assert.equal(plan.execution!.publishEnabled, true);
+  assert.equal(objects.size, 0, 'nothing is public before confirmation');
+  const progress = await f.client.confirm(f.store, confirmation(plan));
+  assert.equal(progress.job.phase, 'pushed'); assert.deepEqual([...objects.keys()], [image.key]);
+});
+test('a public image the workbench no longer has blocks confirmation instead of breaking the site', async t => {
+  const f = await fixture(t, true, { async head() { return false; }, async put() { throw new Error('unused'); } });
+  const article = parseArticle(f.store.get().workspace.articles[0]!);
+  f.store.save(f.store.get().revision, { type: 'saveArticle', create: true, path: 'articles/lost.md', data: { ...article.data, id: 'lost', title: 'Lost', draft: false }, body: `![x](${imageUrl('c'.repeat(32) + '-4x4.png')})\n` });
+  const plan = await f.client.create(f.store, f.store.get().revision);
+  assert.deepEqual(plan.imageStatus?.missing, ['c'.repeat(32) + '-4x4.png']); assert.equal(plan.execution!.publishEnabled, false);
 });
