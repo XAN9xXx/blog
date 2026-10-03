@@ -2,6 +2,7 @@ import type { Element, ElementContent, Nodes, Properties } from 'hast';
 import type { HastPluginDefinition } from 'satteri';
 import type {} from '@astrojs/markdown-satteri'; // Types ctx.data.astro (the frontmatter Astro passes in).
 import { articleText, DEFAULT_LANG } from './i18n';
+import { IMAGE_ORIGIN, parseImageUrl } from './images';
 
 /**
  * Sätteri hast plugin for article bodies. Astro runs it after Shiki and before it assigns heading IDs,
@@ -9,6 +10,8 @@ import { articleText, DEFAULT_LANG } from './i18n';
  * - The page title is the only h1, so a body that uses h1 is shifted down one level.
  * - Code blocks get a bar naming their language; the page script adds the copy button to it.
  * - Tables scroll inside their own region instead of widening the page.
+ * - Images must be IMAGE_ORIGIN keys; they get the size their key names and load lazily. Anything else
+ *   fails the build, so an article can neither break nor load images from elsewhere.
  */
 const SHIFT = 'xan9xShiftHeadings';
 const element = (tagName: string, properties: Properties, children: ElementContent[]): Element => ({ type: 'element', tagName, properties, children });
@@ -27,9 +30,14 @@ export const articleMarkdown: HastPluginDefinition = {
   name: 'xan9x-article',
   before(root, ctx) { ctx.data[SHIFT] = containsH1(root); },
   element: {
-    filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'table'],
+    filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'table', 'img'],
     visit(node, ctx) {
-      if (node.tagName === 'pre') {
+      if (node.tagName === 'img') {
+        const src = typeof node.properties.src === 'string' ? node.properties.src : '';
+        const image = parseImageUrl(src);
+        if (!image) throw new Error(`文章图片必须是工作台上传到 ${IMAGE_ORIGIN} 的地址：${src.slice(0, 200)}`);
+        ctx.replaceNode(node, element('img', { ...node.properties, width: image.width, height: image.height, loading: 'lazy', decoding: 'async' }, []));
+      } else if (node.tagName === 'pre') {
         const language = codeLanguage(node);
         const label: ElementContent[] = language && language !== 'plaintext' && language !== 'text' ? [{ type: 'text', value: language }] : [];
         ctx.replaceNode(node, element('figure', { className: ['code-block'] }, [

@@ -46,3 +46,12 @@ test('the table region is labelled in the article language', async () => {
   const { code } = await processor.render('| a |\n| - |\n| 1 |\n', { frontmatter: { lang: 'en' } });
   assert.match(code, /aria-label="Scrollable table"/);
 });
+
+test('images must be uploaded keys: they get their size from the key and load lazily', async () => {
+  const key = 'a'.repeat(32) + '-1200x800.webp';
+  const { html } = await render(`![A diagram](https://img.xan9x.com/${key})\n`);
+  assert.match(html, new RegExp(`<img src="https://img.xan9x.com/${key}" alt="A diagram" width="1200" height="800" loading="lazy" decoding="async"`));
+  for (const src of ['https://evil.example/x.png', '/images/x.png', `https://img.xan9x.com/${key}?v=1`, 'https://img.xan9x.com/' + 'a'.repeat(32) + '-0x800.png', `https://img.xan9x.com.evil.example/${key}`]) {
+    await assert.rejects(render(`![x](${src})\n`), /文章图片必须是/, src);
+  }
+});
